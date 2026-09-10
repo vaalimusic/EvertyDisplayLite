@@ -12,8 +12,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install stable Rust
-        run: rustup show
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
       - name: Verify public boundary
         shell: pwsh
         run: ./scripts/verify-public-tree.ps1
