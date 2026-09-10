@@ -2,6 +2,7 @@
 
 mod assets;
 mod canvas;
+mod driver_device;
 mod i18n;
 mod ipc_client;
 mod styles;
@@ -96,9 +97,16 @@ fn find_driver_dir() -> Option<std::path::PathBuf> {
 }
 
 fn run_native_driver_installer() -> i32 {
+    // A normal application update must not touch a healthy display adapter or
+    // its live XML. Reinstalling or rewriting an active IDD causes avoidable
+    // display loss, races the driver settings writer and can create duplicates.
+    if multitor_driver_manager::is_driver_pipe_ready() {
+        return 0;
+    }
+
     // Keep an existing installation's monitor count and custom options intact,
     // but merge newly supported refresh rates into its global mode list. The
-    // running driver picks this up on its next normal restart or Windows reboot.
+    // driver is known to be stopped here, so updating the file cannot race it.
     let installed_settings = std::path::Path::new(r"C:\VirtualDisplayDriver\vdd_settings.xml");
     if let Ok(existing) = std::fs::read_to_string(installed_settings) {
         if let Some(updated) = add_global_refresh_rate_xml(&existing, 180) {
@@ -106,62 +114,34 @@ fn run_native_driver_installer() -> i32 {
         }
     }
 
-    // A normal application update must not tear down a healthy display adapter.
-    // Reinstalling an active IDD causes avoidable display loss and flicker.
-    if multitor_driver_manager::is_driver_pipe_ready() {
-        return 0;
-    }
-
     let driver_dir = match find_driver_dir() {
         Some(d) => d,
         None => return 1,
     };
 
-    let devcon = driver_dir.join(r"vdd_control\Dependencies\devcon.exe");
     let inf = driver_dir.join(r"signed_x64\MttVDD.inf");
     let settings = driver_dir.join(r"signed_x64\vdd_settings.xml");
-    if !devcon.is_file() || !inf.is_file() {
+    if !inf.is_file() {
         return 4;
     }
 
     // The driver pipe can be temporarily unavailable while an update is stopping
     // the old application. Device presence is authoritative: reinstalling an
     // already registered IDD can create another adapter and extra Windows screens.
-    let installed_status = || -> Option<bool> {
-        let mut cmd = Command::new(&devcon);
-        cmd.args(["status", "Root\\MttVDD"]);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let output = cmd.output().ok()?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let exists = text
-            .lines()
-            .any(|line| line.trim_start().to_ascii_uppercase().starts_with("ROOT\\"));
-        exists.then(|| text.contains("Driver is running."))
+    let installed_device_exists = match driver_device::is_present() {
+        Ok(present) => present,
+        // Never guess "absent" when SetupAPI cannot enumerate devices: doing
+        // so could create a duplicate adapter during an update.
+        Err(_) => return 3,
     };
-
-    if let Some(running) = installed_status() {
-        if running {
-            return 0;
+    if installed_device_exists {
+        // Repair the existing stopped device in place. Never install a second one.
+        if driver_device::restart_existing().is_err() {
+            return 3;
         }
 
-        // Repair the existing stopped device in place. Never install a second one.
-        let mut cmd = Command::new(&devcon);
-        cmd.args(["enable", "Root\\MttVDD"]);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd.status();
-
-        let mut cmd = Command::new(&devcon);
-        cmd.args(["restart", "Root\\MttVDD"]);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd.status();
-
         for _ in 0..40 {
-            if multitor_driver_manager::is_driver_pipe_ready()
-                || installed_status().is_some_and(|is_running| is_running)
-            {
+            if multitor_driver_manager::is_driver_pipe_ready() {
                 return 0;
             }
             std::thread::sleep(Duration::from_millis(250));
@@ -232,30 +212,10 @@ fn run_native_driver_installer() -> i32 {
         }
     }
 
-    // 3. Install the signed driver only when no MttVDD device exists.
-    if devcon.exists() && inf.exists() {
-        let mut cmd = Command::new(&devcon);
-        cmd.args(["install", inf.to_str().unwrap_or_default(), "Root\\MttVDD"]);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        match cmd.status() {
-            Ok(status) if status.success() => {}
-            _ => return 2,
-        }
-
-        std::thread::sleep(Duration::from_millis(1000));
-
-        let mut cmd = Command::new(&devcon);
-        cmd.args(["restart", "Root\\MttVDD"]);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd.status();
-
-        let mut cmd = Command::new(&devcon);
-        cmd.args(["enable", "Root\\MttVDD"]);
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd.status();
+    // 3. Create the root device through SetupAPI and install its signed INF
+    // with the inbox PnPUtil. No WDK redistributables are shipped.
+    if driver_device::install(&inf).is_err() {
+        return 2;
     }
 
     for _ in 0..40 {
@@ -283,22 +243,8 @@ fn add_global_refresh_rate_xml(content: &str, refresh_rate: u32) -> Option<Strin
 }
 
 fn run_native_driver_uninstaller() -> i32 {
-    let driver_dir = find_driver_dir();
-    if let Some(ref dir) = driver_dir {
-        let devcon = dir.join(r"vdd_control\Dependencies\devcon.exe");
-        if devcon.exists() {
-            let mut cmd = Command::new(&devcon);
-            cmd.args(["remove", "Root\\MttVDD"]);
-            #[cfg(windows)]
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            let _ = cmd.status();
-
-            let mut cmd = Command::new(&devcon);
-            cmd.args(["remove", "*MTTVDD*"]);
-            #[cfg(windows)]
-            cmd.creation_flags(CREATE_NO_WINDOW);
-            let _ = cmd.status();
-        }
+    if driver_device::remove_all().is_err() {
+        return 2;
     }
 
     // Clean registry
