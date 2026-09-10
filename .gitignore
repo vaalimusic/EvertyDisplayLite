@@ -1,0 +1,17 @@
+/target/
+/dist/
+*.pdb
+*.dmp
+*.log
+.idea/
+.vscode/
+.vs/
+.DS_Store
+Thumbs.db
+config.json
+ui-settings.json
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer

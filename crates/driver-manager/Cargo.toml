@@ -1,0 +1,15 @@
+﻿[package]
+name = "multitor-driver-manager"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+multitor-ipc = { path = "../ipc" }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+windows = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

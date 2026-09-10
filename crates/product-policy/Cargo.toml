@@ -1,0 +1,9 @@
+[package]
+name = "everty-product-policy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+multitor-ipc = { path = "../ipc" }
