@@ -373,72 +373,6 @@ fn elevate_and_uninstall_driver() -> bool {
     false
 }
 
-fn find_script_path(script_name: &str) -> Option<std::path::PathBuf> {
-    if let Ok(cur_exe) = std::env::current_exe() {
-        if let Some(parent) = cur_exe.parent() {
-            let direct = parent.join(script_name);
-            if direct.exists() {
-                return Some(direct);
-            }
-            if let Some(proj_root) = parent.parent().and_then(|p| p.parent()) {
-                let from_root = proj_root.join(script_name);
-                if from_root.exists() {
-                    return Some(from_root);
-                }
-            }
-        }
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        let from_cwd = cwd.join(script_name);
-        if from_cwd.exists() {
-            return Some(from_cwd);
-        }
-    }
-    None
-}
-
-fn run_script_elevated(script_name: &str) -> bool {
-    let script_path = match find_script_path(script_name) {
-        Some(p) => p,
-        None => return false,
-    };
-
-    #[cfg(windows)]
-    unsafe {
-        use windows::core::PCWSTR;
-        use windows::Win32::UI::Shell::ShellExecuteW;
-        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
-        let file: Vec<u16> = "powershell.exe\0".encode_utf16().collect();
-        let verb: Vec<u16> = "runas\0".encode_utf16().collect();
-        let param_str = format!(
-            "-NoProfile -ExecutionPolicy Bypass -File \"{}\"\0",
-            script_path.display()
-        );
-        let params: Vec<u16> = param_str.encode_utf16().collect();
-        let dir_str = format!(
-            "{}\0",
-            script_path
-                .parent()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default()
-        );
-        let dir: Vec<u16> = dir_str.encode_utf16().collect();
-
-        let res = ShellExecuteW(
-            None,
-            PCWSTR(verb.as_ptr()),
-            PCWSTR(file.as_ptr()),
-            PCWSTR(params.as_ptr()),
-            PCWSTR(dir.as_ptr()),
-            SW_SHOWNORMAL,
-        );
-        (res.0 as usize) > 32
-    }
-    #[cfg(not(windows))]
-    false
-}
-
 fn find_service_executable() -> Result<std::path::PathBuf, String> {
     let mut candidates = Vec::new();
     if let Ok(current_exe) = std::env::current_exe() {
@@ -804,10 +738,7 @@ impl App {
             Message::ConfirmUninstallDriver => {
                 self.confirm_dialog = ConfirmDialogState::None;
                 self.status_text = "Удаление видеодрайвера EvertyDisplay (UAC)...".to_string();
-                let launched = elevate_and_uninstall_driver();
-                if !launched {
-                    let _ = run_script_elevated("uninstall-display.ps1");
-                }
+                let _ = elevate_and_uninstall_driver();
                 Task::perform(
                     async {
                         tokio::time::sleep(Duration::from_millis(3500)).await;
@@ -845,10 +776,7 @@ impl App {
             }
             Message::ActivateDriver => {
                 self.status_text = "Активация видеодрайвера EvertyDisplay (UAC)...".to_string();
-                let launched = elevate_and_install_driver();
-                if !launched {
-                    let _ = run_script_elevated("install-display.ps1");
-                }
+                let _ = elevate_and_install_driver();
                 Task::perform(
                     async {
                         tokio::time::sleep(Duration::from_millis(4000)).await;
@@ -1097,10 +1025,7 @@ impl App {
                 let driver_ready = multitor_driver_manager::is_driver_pipe_ready();
                 if !driver_ready {
                     self.status_text = "Активация видеодрайвера EvertyDisplay (UAC)...".to_string();
-                    let launched = elevate_and_install_driver();
-                    if !launched {
-                        let _ = run_script_elevated("install-display.ps1");
-                    }
+                    let _ = elevate_and_install_driver();
 
                     return Task::perform(
                         async move {
