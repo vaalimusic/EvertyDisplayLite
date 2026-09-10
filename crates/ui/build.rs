@@ -4,11 +4,13 @@ fn main() {
         res.set_icon("evertydisplay.ico");
         res.set("FileDescription", "EvertyDisplay - Virtual Display Manager");
         res.set("ProductName", "EvertyDisplay");
+        res.set("CompanyName", "Артур Валиев (Arthur Valiev)");
+        res.set("LegalCopyright", "Copyright (C) 2026 Артур Валиев (Arthur Valiev)");
+        res.set("Comments", "Created by Артур Валиев (Arthur Valiev)");
         res.set("OriginalFilename", "EvertyDisplay.exe");
         res.set("FileVersion", env!("CARGO_PKG_VERSION"));
         res.set("ProductVersion", env!("CARGO_PKG_VERSION"));
-        if let Err(e) = res.compile() {
-            eprintln!("Warning: Failed to compile Windows resource: {}", e);
-        }
+        res.compile()
+            .expect("failed to compile EvertyDisplay Windows resources");
     }
 }
