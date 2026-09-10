@@ -143,7 +143,7 @@ be reported privately according to [SECURITY.md](SECURITY.md).
 ---
 
 <div align="center">
-  <strong>Designed and created by Arthur Valiev</strong><br>
+  <strong>Designed and created by Артур Валиев (Arthur Valiev)</strong><br>
   <a href="https://desk.everty.ru/evertydisplay">desk.everty.ru/evertydisplay</a> ·
   <a href="mailto:info@everty.ru">info@everty.ru</a>
 </div>
