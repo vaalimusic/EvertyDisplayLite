@@ -5,7 +5,10 @@ fn main() {
         res.set("FileDescription", "EvertyDisplay Background Service");
         res.set("ProductName", "EvertyDisplay");
         res.set("CompanyName", "Артур Валиев (Arthur Valiev)");
-        res.set("LegalCopyright", "Copyright (C) 2026 Артур Валиев (Arthur Valiev)");
+        res.set(
+            "LegalCopyright",
+            "Copyright (C) 2026 Артур Валиев (Arthur Valiev)",
+        );
         res.set("Comments", "Created by Артур Валиев (Arthur Valiev)");
         res.set("OriginalFilename", "multitor-service.exe");
         res.set("FileVersion", env!("CARGO_PKG_VERSION"));
