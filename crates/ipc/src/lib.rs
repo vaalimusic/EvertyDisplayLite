@@ -150,7 +150,7 @@ pub struct TopologyConfig {
     #[serde(default = "default_true")]
     pub drag_teleport_enabled: bool,
     /// Keep virtual outputs at the primary physical display's native pixel
-    /// dimensions. Matching refresh is preferred but never blocks resolution.
+    /// dimensions without copying its refresh rate.
     #[serde(default = "default_true")]
     pub match_virtual_mode_to_primary: bool,
     /// Follow a newly activated window from a virtual workspace back to the
@@ -173,6 +173,29 @@ pub struct TopologyConfig {
     pub pip_placements: Vec<PipPlacementConfig>,
     #[serde(default)]
     pub autostart_enabled: bool,
+}
+
+/// Returns the logical id of the virtual connector that the driver can remove
+/// next. MttVDD removes connectors in reverse driver order; Windows logical ids
+/// can be renumbered and therefore must not be used to infer that order.
+pub fn removable_virtual_monitor_id(
+    topology: &TopologyConfig,
+    displays: &[DisplayInfo],
+) -> Option<u32> {
+    displays
+        .iter()
+        .rfind(|display| display.is_virtual)
+        .and_then(|display| {
+            topology
+                .monitors
+                .iter()
+                .find(|monitor| {
+                    monitor
+                        .device_name
+                        .eq_ignore_ascii_case(&display.device_name)
+                })
+                .map(|monitor| monitor.id)
+        })
 }
 
 /// Automatically recomputes neighbor links for all monitors based on their 2D bounding boxes.
@@ -351,6 +374,40 @@ mod tests {
         assert_eq!(monitors[0].neighbors.right, Some(3));
         assert_eq!(monitors[1].neighbors, Neighbors::default());
         assert_eq!(monitors[2].neighbors.left, Some(1));
+    }
+
+    #[test]
+    fn removable_virtual_monitor_follows_driver_order_not_largest_id() {
+        let mut first = monitor(8, 0, true);
+        first.is_virtual = true;
+        let mut last = monitor(3, 1920, true);
+        last.is_virtual = true;
+        let topology = TopologyConfig {
+            monitors: vec![first.clone(), last.clone()],
+            ..Default::default()
+        };
+        let displays = vec![
+            DisplayInfo {
+                id: 8,
+                device_name: first.device_name,
+                friendly_name: "Virtual A".into(),
+                bounds: first.bounds,
+                refresh_rate: 60,
+                is_primary: false,
+                is_virtual: true,
+            },
+            DisplayInfo {
+                id: 3,
+                device_name: last.device_name,
+                friendly_name: "Virtual B".into(),
+                bounds: last.bounds,
+                refresh_rate: 60,
+                is_primary: false,
+                is_virtual: true,
+            },
+        ];
+
+        assert_eq!(removable_virtual_monitor_id(&topology, &displays), Some(3));
     }
 
     #[test]

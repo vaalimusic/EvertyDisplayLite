@@ -33,6 +33,7 @@ use window_manager::WindowManager;
 
 const PRODUCT_CAPABILITIES: multitor_ipc::ProductCapabilities =
     everty_product_policy::ACTIVE_CAPABILITIES;
+const DEFAULT_VIRTUAL_REFRESH_RATE: u32 = 60;
 
 struct PendingMonitorConfirmation {
     id: u32,
@@ -113,10 +114,22 @@ fn restore_virtual_modes(displays: &[DisplayInfo], modes: &[VirtualModePreferenc
     }
 }
 
-/// Match managed virtual outputs to the primary physical display. Pixel dimensions
-/// are the non-negotiable part because resampling a different-sized capture is what
-/// makes text and window edges look soft. Refresh rate is matched when advertised;
-/// otherwise the highest rate available at the same resolution is used.
+/// Match managed virtual outputs to the primary physical display while preserving
+/// each output's refresh rate. Pixel dimensions remove capture resampling and blur;
+/// copying a high-refresh MAIN mode would needlessly make new virtual outputs start
+/// at 144/240+ Hz.
+fn synchronized_virtual_mode(
+    primary: &DisplayInfo,
+    output: &DisplayInfo,
+) -> Option<(u32, u32, u32)> {
+    (output.bounds.width != primary.bounds.width || output.bounds.height != primary.bounds.height)
+        .then_some((
+            primary.bounds.width,
+            primary.bounds.height,
+            output.refresh_rate,
+        ))
+}
+
 fn synchronize_virtual_modes_to_primary(displays: &[DisplayInfo]) -> bool {
     let Some(primary) = displays
         .iter()
@@ -129,60 +142,49 @@ fn synchronize_virtual_modes_to_primary(displays: &[DisplayInfo]) -> bool {
 
     let mut changed = false;
     for output in displays.iter().filter(|display| display.is_virtual) {
-        if output.bounds.width == primary.bounds.width
-            && output.bounds.height == primary.bounds.height
-            && output.refresh_rate == primary.refresh_rate
-        {
+        let Some((target_width, target_height, target_refresh_rate)) =
+            synchronized_virtual_mode(primary, output)
+        else {
             continue;
-        }
+        };
 
         let exact = multitor_driver_manager::set_display_mode(
             &output.device_name,
-            primary.bounds.width,
-            primary.bounds.height,
-            primary.refresh_rate,
+            target_width,
+            target_height,
+            target_refresh_rate,
         );
         match exact {
             Ok(()) => {
                 changed = true;
                 info!(
-                    "Matched {} to MAIN mode {}x{} @ {} Hz",
-                    output.device_name,
-                    primary.bounds.width,
-                    primary.bounds.height,
-                    primary.refresh_rate
+                    "Matched {} to MAIN resolution {}x{} while preserving {} Hz",
+                    output.device_name, target_width, target_height, target_refresh_rate
                 );
             }
-            Err(exact_error)
-                if output.bounds.width != primary.bounds.width
-                    || output.bounds.height != primary.bounds.height =>
-            {
+            Err(exact_error) => {
                 match multitor_driver_manager::set_display_mode(
                     &output.device_name,
-                    primary.bounds.width,
-                    primary.bounds.height,
-                    0,
+                    target_width,
+                    target_height,
+                    DEFAULT_VIRTUAL_REFRESH_RATE,
                 ) {
                     Ok(()) => {
                         changed = true;
                         info!(
-                            "Matched {} to MAIN resolution {}x{} using its highest available refresh rate",
-                            output.device_name, primary.bounds.width, primary.bounds.height
+                            "Matched {} to MAIN resolution {}x{} using the safe 60 Hz fallback",
+                            output.device_name, target_width, target_height
                         );
                     }
                     Err(fallback_error) => warn!(
-                        "Could not match {} to MAIN {}x{} @ {} Hz: {exact_error:#}; resolution fallback failed: {fallback_error:#}",
+                        "Could not match {} to MAIN {}x{} while preserving {} Hz: {exact_error:#}; 60 Hz fallback failed: {fallback_error:#}",
                         output.device_name,
-                        primary.bounds.width,
-                        primary.bounds.height,
-                        primary.refresh_rate
+                        target_width,
+                        target_height,
+                        target_refresh_rate
                     ),
                 }
             }
-            Err(exact_error) => warn!(
-                "MAIN refresh rate {} Hz is unavailable for {}; keeping its current {} Hz at matching resolution: {exact_error:#}",
-                primary.refresh_rate, output.device_name, output.refresh_rate
-            ),
         }
     }
     changed
@@ -572,6 +574,38 @@ mod native_layout_tests {
             layout_x: Some(layout_x),
             layout_y: Some(2240),
         }
+    }
+
+    #[test]
+    fn main_resolution_sync_never_copies_a_high_refresh_rate() {
+        let primary = DisplayInfo {
+            id: 1,
+            device_name: r"\\.\DISPLAY1".into(),
+            friendly_name: "Main".into(),
+            bounds: DisplayBounds::new(0, 0, 2560, 1440),
+            refresh_rate: 244,
+            is_primary: true,
+            is_virtual: false,
+        };
+        let mut virtual_display = DisplayInfo {
+            id: 2,
+            device_name: r"\\.\DISPLAY2".into(),
+            friendly_name: "Virtual".into(),
+            bounds: DisplayBounds::new(2560, 0, 1920, 1080),
+            refresh_rate: 60,
+            is_primary: false,
+            is_virtual: true,
+        };
+
+        assert_eq!(
+            synchronized_virtual_mode(&primary, &virtual_display),
+            Some((2560, 1440, 60))
+        );
+
+        virtual_display.bounds.width = 2560;
+        virtual_display.bounds.height = 1440;
+        virtual_display.refresh_rate = 144;
+        assert_eq!(synchronized_virtual_mode(&primary, &virtual_display), None);
     }
 
     #[test]
@@ -1320,7 +1354,7 @@ async fn main() -> Result<()> {
                                     (
                                         display.bounds.width,
                                         display.bounds.height,
-                                        display.refresh_rate,
+                                        DEFAULT_VIRTUAL_REFRESH_RATE,
                                     )
                                 })
                                 .unwrap_or((width, height, refresh_rate))
@@ -1458,9 +1492,10 @@ async fn main() -> Result<()> {
                 ServiceCommand::RemoveMonitor { id, reply } => {
                     let target = topology.get_monitor(id).cloned();
                     let result = async {
-                        let target = target.ok_or_else(|| format!("Monitor {id} is not connected"))?;
+                        let target = target
+                            .ok_or_else(|| format!("Экран {id} не подключён или уже удалён"))?;
                         if !target.is_virtual {
-                            return Err("Physical monitors cannot be removed by EvertyDisplay".to_string());
+                            return Err("Физические мониторы нельзя удалить через EvertyDisplay".to_string());
                         }
 
                         // SETDISPLAYCOUNT can only remove the driver's last virtual output.
@@ -1471,13 +1506,12 @@ async fn main() -> Result<()> {
                             .map(|display| display.device_name.eq_ignore_ascii_case(&target.device_name))
                             .unwrap_or(false)
                         {
-                            let removable_id = removable_display.and_then(|display| {
-                                topology.config().monitors.iter().find(|monitor| {
-                                    monitor.device_name.eq_ignore_ascii_case(&display.device_name)
-                                }).map(|monitor| monitor.id)
-                            });
+                            let removable_id = multitor_ipc::removable_virtual_monitor_id(
+                                topology.config(),
+                                &detected_displays,
+                            );
                             return Err(format!(
-                                "The driver removes virtual monitors in reverse creation order; remove monitor {} first",
+                                "Драйвер удаляет виртуальные экраны в обратном порядке добавления. Сначала удалите экран {}",
                                 removable_id.unwrap_or(id)
                             ));
                         }
@@ -1485,7 +1519,7 @@ async fn main() -> Result<()> {
                         let current_count = detected_displays.iter().filter(|d| d.is_virtual).count() as u32;
                         if current_count <= 1 {
                             return Err(
-                                "The last virtual monitor belongs to the active MttVDD adapter and cannot be removed with SETDISPLAYCOUNT. Use driver removal to remove it safely."
+                                "Последний виртуальный экран нельзя удалить отдельно от активного адаптера. Для полного удаления используйте «Удалить видеодрайвер» в настройках."
                                     .to_string(),
                             );
                         }
@@ -1496,7 +1530,7 @@ async fn main() -> Result<()> {
                         );
                         multitor_driver_manager::restore_driver_monitor_count(remaining_count)
                             .await
-                            .map_err(|e| format!("Driver rejected monitor removal: {e}"))?;
+                            .map_err(|e| format!("драйвер отклонил удаление: {e}"))?;
 
                         for _attempt in 1..=60 {
                             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -1526,10 +1560,10 @@ async fn main() -> Result<()> {
                         let rollback = multitor_driver_manager::restore_driver_monitor_count(current_count).await;
                         if let Err(error) = rollback {
                             Err(format!(
-                                "Windows did not remove the virtual monitor within 15 seconds, and rollback failed: {error}"
+                                "Windows не убрала виртуальный экран за 15 секунд, восстановить прежнее количество тоже не удалось: {error}"
                             ))
                         } else {
-                            Err("Windows did not remove the virtual monitor within 15 seconds; the previous driver count was restored".to_string())
+                            Err("Windows не убрала виртуальный экран за 15 секунд; прежнее количество экранов восстановлено".to_string())
                         }
                     }.await;
                     let _ = reply.send(result);

@@ -10,13 +10,13 @@ mod styles;
 use assets::*;
 use i18n::LanguagePreference;
 use iced::widget::{
-    button, canvas::Canvas, checkbox, column, container, horizontal_space, image, mouse_area, row,
-    scrollable, slider, text as iced_text, text_input, tooltip, Space,
+    button, canvas::Canvas, checkbox, column, container, horizontal_space, image, mouse_area,
+    progress_bar, row, scrollable, slider, text as iced_text, text_input, tooltip, Space,
 };
 use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme};
 use multitor_ipc::{
-    ArrangeMode, DisplayInfo, IpcRequest, IpcResponse, ProductCapabilities, ProductEdition,
-    TopologyConfig, VirtualWindowActivationAction,
+    removable_virtual_monitor_id, ArrangeMode, DisplayInfo, IpcRequest, IpcResponse,
+    ProductCapabilities, ProductEdition, TopologyConfig, VirtualWindowActivationAction,
 };
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -27,6 +27,7 @@ use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const APP_WINDOW_TITLE: &str = "EvertyDisplay";
+const DEFAULT_VIRTUAL_REFRESH_RATE: u32 = 60;
 
 fn text<'a>(content: impl Into<std::borrow::Cow<'a, str>>) -> iced::widget::Text<'a> {
     iced_text(i18n::translate(content)).shaping(iced::widget::text::Shaping::Advanced)
@@ -558,12 +559,20 @@ pub enum Message {
     SaveTopology,
     AddVirtualMonitor,
     RemoveMonitor(u32),
+    RemovedMonitorResult {
+        id: u32,
+        result: Result<(TopologyConfig, Vec<DisplayInfo>, ProductCapabilities), String>,
+    },
     ForgetMonitor(u32),
     MoveLeft(u32),
     MoveRight(u32),
     AutoArrange(ArrangeMode),
     ResetLayout,
-    UpdateMonitorPosition { id: u32, x: i32, y: i32 },
+    UpdateMonitorPosition {
+        id: u32,
+        x: i32,
+        y: i32,
+    },
     // Add monitor confirmation flow
     RequestAddMonitor, // User clicked "Добавить экран" - show warning first
     ConfirmAddMonitor, // User clicked "Продолжить" in warning → actually add
@@ -629,6 +638,9 @@ pub struct App {
     window_id: Option<iced::window::Id>,
     canvas_reset_tag: u32,
     is_refreshing: bool,
+    removing_monitor_id: Option<u32>,
+    removal_started_at: Option<Instant>,
+    status_notice_until: Option<Instant>,
 }
 
 impl App {
@@ -657,6 +669,9 @@ impl App {
                 window_id: None,
                 canvas_reset_tag: 0,
                 is_refreshing: true,
+                removing_monitor_id: None,
+                removal_started_at: None,
+                status_notice_until: None,
             },
             Task::batch([
                 Task::perform(bootstrap_and_fetch(), Message::DataLoaded),
@@ -787,7 +802,15 @@ impl App {
                 )
             }
             Message::DataLoaded(res) => {
-                self.is_refreshing = false;
+                let removal_in_progress = self.removing_monitor_id.is_some();
+                if self
+                    .status_notice_until
+                    .is_some_and(|deadline| Instant::now() >= deadline)
+                {
+                    self.status_notice_until = None;
+                }
+                let preserve_status = removal_in_progress || self.status_notice_until.is_some();
+                self.is_refreshing = removal_in_progress;
                 self.is_driver_ready = multitor_driver_manager::is_driver_pipe_ready();
                 match res {
                     Ok((top, disps, capabilities)) => {
@@ -809,11 +832,13 @@ impl App {
                         }
 
                         self.topology = Some(top);
-                        self.status_text = if self.is_driver_ready {
-                            "Служба EvertyDisplay и видеодрайвер активны".to_string()
-                        } else {
-                            "Служба активна; видеодрайвер пока не подключен".to_string()
-                        };
+                        if !preserve_status {
+                            self.status_text = if self.is_driver_ready {
+                                "Служба EvertyDisplay и видеодрайвер активны".to_string()
+                            } else {
+                                "Служба активна; видеодрайвер пока не подключен".to_string()
+                            };
+                        }
                     }
                     Err(err) => {
                         self.is_connected = false;
@@ -843,6 +868,7 @@ impl App {
                 Ok(()) => Task::perform(fetch_data(), Message::DataLoaded),
                 Err(message) => {
                     self.status_text = format!("Операция с монитором не выполнена: {message}");
+                    self.status_notice_until = Some(Instant::now() + Duration::from_secs(15));
                     Task::none()
                 }
             },
@@ -1016,7 +1042,13 @@ impl App {
                         })
                         .or_else(|| top.monitors.iter().find(|monitor| !monitor.is_virtual))
                         .or_else(|| top.monitors.first())
-                        .map(|m| (m.bounds.width, m.bounds.height, m.refresh_rate))
+                        .map(|m| {
+                            (
+                                m.bounds.width,
+                                m.bounds.height,
+                                DEFAULT_VIRTUAL_REFRESH_RATE,
+                            )
+                        })
                         .unwrap_or((2560, 1440, 60))
                 } else {
                     (2560, 1440, 60)
@@ -1076,6 +1108,7 @@ impl App {
                 Err(message) => {
                     self.add_flow = AddMonitorFlowState::Idle;
                     self.status_text = format!("Не удалось добавить экран: {message}");
+                    self.status_notice_until = Some(Instant::now() + Duration::from_secs(15));
                     Task::none()
                 }
             },
@@ -1132,15 +1165,53 @@ impl App {
                     return Task::none();
                 };
                 self.add_flow = AddMonitorFlowState::Idle;
+                self.update(Message::RemoveMonitor(id))
+            }
+            Message::RemoveMonitor(id) => {
+                if self.removing_monitor_id.is_some() {
+                    return Task::none();
+                }
+                self.removing_monitor_id = Some(id);
+                self.removal_started_at = Some(Instant::now());
+                self.is_refreshing = true;
+                self.status_text = format!("Удаление виртуального экрана {id}…");
                 Task::perform(
-                    send_monitor_action(IpcRequest::RemoveMonitor(id)),
-                    Message::MonitorActionResult,
+                    async move {
+                        match tokio::time::timeout(
+                            Duration::from_secs(40),
+                            send_monitor_action(IpcRequest::RemoveMonitor(id)),
+                        )
+                        .await
+                        {
+                            Ok(Ok(())) => fetch_data().await,
+                            Ok(Err(error)) => Err(error),
+                            Err(_) => Err(
+                                "Удаление не завершилось за 40 секунд. Драйвер мог перестать отвечать"
+                                    .to_string(),
+                            ),
+                        }
+                    },
+                    move |result| Message::RemovedMonitorResult { id, result },
                 )
             }
-            Message::RemoveMonitor(id) => Task::perform(
-                send_monitor_action(IpcRequest::RemoveMonitor(id)),
-                Message::MonitorActionResult,
-            ),
+            Message::RemovedMonitorResult { id, result } => {
+                self.removing_monitor_id = None;
+                self.removal_started_at = None;
+                self.is_refreshing = false;
+                match result {
+                    Ok(data) => {
+                        let task = self.update(Message::DataLoaded(Ok(data)));
+                        self.status_text = format!("Виртуальный экран {id} удалён");
+                        self.status_notice_until = Some(Instant::now() + Duration::from_secs(8));
+                        task
+                    }
+                    Err(message) => {
+                        self.status_text = format!("Не удалось удалить экран {id}: {message}");
+                        self.status_notice_until = Some(Instant::now() + Duration::from_secs(20));
+                        Task::none()
+                    }
+                }
+            }
             Message::ForgetMonitor(id) => {
                 if let Some(top) = &mut self.topology {
                     top.monitors
@@ -1371,7 +1442,8 @@ impl App {
                     .count() as u32
             })
             .unwrap_or(0);
-        let can_add = virtual_count < self.product_capabilities.max_virtual_displays;
+        let can_add = self.removing_monitor_id.is_none()
+            && virtual_count < self.product_capabilities.max_virtual_displays;
         let add_btn = tooltip(
             button(
                 row![
@@ -1934,10 +2006,45 @@ impl App {
         };
 
         let active_banner = flow_banner.or(dialog_banner);
+        let operation_banner =
+            if self.removing_monitor_id.is_none() && self.status_notice_until.is_some() {
+                let failed = self.status_text.starts_with("Не удалось")
+                    || self.status_text.contains("не выполнена");
+                let color = if failed { DANGER } else { SUCCESS };
+                container(
+                    row![
+                        render_svg(
+                            if failed {
+                                ICON_STATUS_WARN
+                            } else {
+                                ICON_STATUS_CHECK
+                            },
+                            17.0,
+                            Some(if failed { "#EF4444" } else { "#22C55E" }),
+                        ),
+                        text(self.status_text.clone())
+                            .size(13)
+                            .style(move |_| text::Style { color: Some(color) }),
+                    ]
+                    .spacing(9)
+                    .align_y(Alignment::Center),
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .style(move |_| {
+                    let mut style = styles::card_style(self.theme_mode);
+                    style.border.color = color;
+                    style.border.width = 1.0;
+                    style
+                })
+            } else {
+                container(row![])
+            };
 
         if let Some(banner) = active_banner {
             column![
                 banner,
+                operation_banner,
                 Space::with_height(8),
                 header,
                 Space::with_height(12),
@@ -1951,6 +2058,7 @@ impl App {
             .into()
         } else {
             column![
+                operation_banner,
                 header,
                 Space::with_height(12),
                 stats,
@@ -2368,12 +2476,7 @@ impl App {
             s
         });
 
-        let removable_virtual_id = top
-            .monitors
-            .iter()
-            .filter(|monitor| monitor.is_virtual)
-            .max_by_key(|monitor| monitor.id)
-            .map(|monitor| monitor.id);
+        let removable_virtual_id = removable_virtual_monitor_id(top, &self.displays);
         let virtual_monitor_count = top
             .monitors
             .iter()
@@ -2422,10 +2525,13 @@ impl App {
                 .padding([8, 16])
                 .on_press_maybe(m.is_enabled.then_some(Message::SwitchToMonitor(m.id)));
 
+                let is_removing = self.removing_monitor_id == Some(m.id);
                 let remove_btn = button(
                     row![
                         render_svg(ICON_TRASH, 14.0, Some("#FFFFFF")),
-                        text(if !m.is_enabled && !m.is_virtual {
+                        text(if is_removing {
+                            "Удаление…"
+                        } else if !m.is_enabled && !m.is_virtual {
                             "Забыть отключённый"
                         } else if !m.is_virtual {
                             "Физический экран"
@@ -2446,7 +2552,8 @@ impl App {
                 .on_press_maybe(if !m.is_enabled && !m.is_virtual {
                     Some(Message::ForgetMonitor(m.id))
                 } else {
-                    (m.is_virtual
+                    (self.removing_monitor_id.is_none()
+                        && m.is_virtual
                         && virtual_monitor_count > 1
                         && removable_virtual_id == Some(m.id))
                     .then_some(Message::RemoveMonitor(m.id))
@@ -2515,8 +2622,36 @@ impl App {
             container(Space::with_height(0))
         };
 
+        let removal_progress = if let Some(id) = self.removing_monitor_id {
+            let phase = self
+                .removal_started_at
+                .map(|started| (started.elapsed().as_millis() % 1600) as f32 / 1600.0)
+                .unwrap_or(0.0);
+            container(
+                column![
+                    row![
+                        render_svg(ICON_REFRESH, 15.0, Some("#5B4CFF")),
+                        text(format!(
+                            "Удаляем виртуальный экран {id}. Windows перенастраивает дисплеи — это может занять до 30 секунд…"
+                        ))
+                        .size(12),
+                    ]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+                    progress_bar(0.0..=1.0, phase),
+                ]
+                .spacing(8),
+            )
+            .padding(12)
+            .width(Length::Fill)
+            .style(|_| styles::card_style(self.theme_mode))
+        } else {
+            container(column![])
+        };
+
         column![
             driver_warning,
+            removal_progress,
             toolbar,
             Space::with_height(6),
             text("Интерактивный 2D холст (колесико мыши: зум, зажмите фон: перемещение):")
@@ -2749,7 +2884,7 @@ impl App {
 
         let match_mode_chk = checkbox(
             i18n::translate(
-                "Использовать разрешение и доступную частоту MAIN для виртуальных дисплеев",
+                "Использовать разрешение MAIN для виртуальных дисплеев (частоту не менять)",
             ),
             top.match_virtual_mode_to_primary,
         )
