@@ -13,12 +13,13 @@ use iced::widget::{
     button, canvas::Canvas, checkbox, column, container, horizontal_space, image, mouse_area,
     progress_bar, row, scrollable, slider, text as iced_text, text_input, tooltip, Space,
 };
-use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme};
+use iced::{font::Weight, Alignment, Color, Element, Font, Length, Subscription, Task, Theme};
 use multitor_ipc::{
     removable_virtual_monitor_id, ArrangeMode, DisplayInfo, IpcRequest, IpcResponse,
     ProductCapabilities, ProductEdition, TopologyConfig, VirtualWindowActivationAction,
 };
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use styles::{ThemeMode, DANGER, PRIMARY, SUCCESS};
 
@@ -29,8 +30,36 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const APP_WINDOW_TITLE: &str = "EvertyDisplay";
 const DEFAULT_VIRTUAL_REFRESH_RATE: u32 = 60;
 
+static USE_VARIABLE_UI_FONT: OnceLock<bool> = OnceLock::new();
+
+pub(crate) fn ui_font() -> Font {
+    ui_font_with_weight(Weight::Normal)
+}
+
+pub(crate) fn ui_font_with_weight(weight: Weight) -> Font {
+    let use_variable = *USE_VARIABLE_UI_FONT.get_or_init(|| {
+        std::env::var_os("WINDIR")
+            .map(std::path::PathBuf::from)
+            .map(|directory| directory.join("Fonts").join("SegUIVar.ttf").is_file())
+            .unwrap_or(false)
+    });
+    let mut font = Font::with_name(preferred_ui_font_name(use_variable));
+    font.weight = weight;
+    font
+}
+
+fn preferred_ui_font_name(variable_available: bool) -> &'static str {
+    if variable_available {
+        "Segoe UI Variable"
+    } else {
+        "Segoe UI"
+    }
+}
+
 fn text<'a>(content: impl Into<std::borrow::Cow<'a, str>>) -> iced::widget::Text<'a> {
-    iced_text(i18n::translate(content)).shaping(iced::widget::text::Shaping::Advanced)
+    iced_text(i18n::translate(content))
+        .font(ui_font())
+        .shaping(iced::widget::text::Shaping::Advanced)
 }
 
 mod text {
@@ -503,6 +532,8 @@ pub fn main() -> iced::Result {
     let icon = iced::window::icon::from_file_data(LOGO_ICON, None).ok();
 
     iced::application(APP_WINDOW_TITLE, App::update, App::view)
+        .default_font(ui_font())
+        .antialiasing(true)
         .window(iced::window::Settings {
             icon,
             min_size: Some(iced::Size::new(1080.0, 720.0)),
@@ -1424,7 +1455,7 @@ impl App {
             column![
                 text("EvertyDisplay").size(18),
                 text("Пространственные виртуальные дисплеи")
-                    .size(11)
+                    .size(12)
                     .style(|_| text::Style {
                         color: Some(self.theme_mode.text_muted()),
                     }),
@@ -1465,7 +1496,7 @@ impl App {
             } else {
                 i18n::virtual_display_limit(self.product_capabilities.max_virtual_displays)
             })
-            .size(11),
+            .size(12),
             tooltip::Position::Right,
         )
         .gap(8)
@@ -1488,7 +1519,7 @@ impl App {
                 .padding([8, 14])
                 .width(Length::Fill)
                 .on_press(Message::RequestActivateDriver),
-                text("Виртуальный видеоадаптер IddCx активен. Нажмите для переустановки.").size(11),
+                text("Виртуальный видеоадаптер IddCx активен. Нажмите для переустановки.").size(12),
                 tooltip::Position::Right,
             )
             .gap(8)
@@ -1513,7 +1544,7 @@ impl App {
                 .width(Length::Fill)
                 .on_press(Message::RequestActivateDriver),
                 text("Требуется разовая системная активация для создания виртуальных экранов.")
-                    .size(11),
+                    .size(12),
                 tooltip::Position::Right,
             )
             .gap(8)
@@ -1545,7 +1576,7 @@ impl App {
             .padding([10, 14])
             .width(Length::Fill)
             .on_press(Message::SetTab(Tab::Monitors)),
-            text("Интерактивное пространственное расположение экранов").size(11),
+            text("Интерактивное пространственное расположение экранов").size(12),
             tooltip::Position::Right,
         )
         .gap(8)
@@ -1576,7 +1607,7 @@ impl App {
             .padding([10, 14])
             .width(Length::Fill)
             .on_press(Message::SetTab(Tab::Settings)),
-            text("Конфигурация OSD, Live PiP, автозапуска и горячих клавиш").size(11),
+            text("Конфигурация OSD, Live PiP, автозапуска и горячих клавиш").size(12),
             tooltip::Position::Right,
         )
         .gap(8)
@@ -1607,7 +1638,7 @@ impl App {
             .padding([10, 14])
             .width(Length::Fill)
             .on_press(Message::SetTab(Tab::About)),
-            text("Автор и контакты проекта").size(11),
+            text("Автор и контакты проекта").size(12),
             tooltip::Position::Right,
         )
         .gap(8)
@@ -1636,7 +1667,7 @@ impl App {
             .padding([6, 12])
             .width(Length::Fill)
             .on_press(Message::ToggleTheme),
-            text("Переключить тему оформления приложения").size(11),
+            text("Переключить тему оформления приложения").size(12),
             tooltip::Position::Right,
         )
         .gap(8)
@@ -1766,7 +1797,7 @@ impl App {
                     column![
                         row![
                             render_svg(ICON_STATUS_WARN, 20.0, Some("#F59E0B")),
-                            text("Добавить виртуальный монитор?").size(16).style(|_| text::Style {
+                            text("Добавить виртуальный монитор?").size(16).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                                 color: Some(self.theme_mode.text_primary()),
                             }),
                         ].spacing(8).align_y(Alignment::Center),
@@ -1804,6 +1835,7 @@ impl App {
                             render_svg(ICON_STATUS_CHECK, 20.0, Some("#22C55E")),
                             text("Монитор добавлен — всё в порядке?")
                                 .size(16)
+                                .font(ui_font_with_weight(Weight::Semibold))
                                 .style(|_| text::Style {
                                     color: Some(self.theme_mode.text_primary()),
                                 }),
@@ -1860,7 +1892,7 @@ impl App {
                     column![
                         row![
                             render_svg(ICON_ZAP, 20.0, Some("#F59E0B")),
-                            text("Активация виртуального дисплея (UAC)").size(16).style(|_| text::Style {
+                            text("Активация виртуального дисплея (UAC)").size(16).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                                 color: Some(self.theme_mode.text_primary()),
                             }),
                         ].spacing(8).align_y(Alignment::Center),
@@ -1895,7 +1927,7 @@ impl App {
                     column![
                         row![
                             render_svg(ICON_TRASH, 20.0, Some("#EF4444")),
-                            text("Внимание: Полное удаление драйвера виртуального дисплея").size(16).style(|_| text::Style {
+                            text("Внимание: Полное удаление драйвера виртуального дисплея").size(16).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                                 color: Some(Color::from_rgb(0.94, 0.27, 0.27)),
                             }),
                         ].spacing(8).align_y(Alignment::Center),
@@ -1931,7 +1963,7 @@ impl App {
                     column![
                         row![
                             render_svg(ICON_EYE, 20.0, Some("#5B4CFF")),
-                            text(if is_enable { "Включить аппаратный Viewport?" } else { "Выключить Viewport?" }).size(16).style(|_| text::Style {
+                            text(if is_enable { "Включить аппаратный Viewport?" } else { "Выключить Viewport?" }).size(16).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                                 color: Some(self.theme_mode.text_primary()),
                             }),
                         ].spacing(8).align_y(Alignment::Center),
@@ -1971,7 +2003,7 @@ impl App {
                     column![
                         row![
                             render_svg(ICON_GAMEPAD, 20.0, Some("#22C55E")),
-                            text(if is_pause { "Включить игровой режим (Пауза мыши)?" } else { "Возобновить переключение мыши?" }).size(16).style(|_| text::Style {
+                            text(if is_pause { "Включить игровой режим (Пауза мыши)?" } else { "Возобновить переключение мыши?" }).size(16).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                                 color: Some(self.theme_mode.text_primary()),
                             }),
                         ].spacing(8).align_y(Alignment::Center),
@@ -2081,7 +2113,7 @@ impl App {
                     .width(Length::Fixed(84.0))
                     .height(Length::Fixed(84.0)),
                 Space::with_height(8),
-                text("Служба EvertyDisplay сейчас отключена").size(22).style(move |_| text::Style {
+                text("Служба EvertyDisplay сейчас отключена").size(22).font(ui_font_with_weight(Weight::Semibold)).style(move |_| text::Style {
                     color: Some(self.theme_mode.text_primary()),
                 }),
                 Space::with_height(4),
@@ -2163,7 +2195,7 @@ impl App {
             .style(|_, status| styles::secondary_button(self.theme_mode, status))
             .padding([8, 14])
             .on_press(Message::RefreshData),
-            text("Обновить конфигурацию и экраны из системы").size(11),
+            text("Обновить конфигурацию и экраны из системы").size(12),
             tooltip::Position::Bottom,
         )
         .gap(6)
@@ -2191,7 +2223,7 @@ impl App {
             .style(|_, status| styles::secondary_button(self.theme_mode, status))
             .padding([8, 14])
             .on_press(Message::RequestToggleViewport(!is_viewport)),
-            text("Аппаратный захват виртуального дисплея (Win+Alt+V)").size(11),
+            text("Аппаратный захват виртуального дисплея (Win+Alt+V)").size(12),
             tooltip::Position::Bottom,
         )
         .gap(6)
@@ -2223,7 +2255,7 @@ impl App {
             .style(|_, status| styles::secondary_button(self.theme_mode, status))
             .padding([8, 14])
             .on_press(Message::RequestToggleGaming(!is_paused)),
-            text("Временная фиксация мыши для 3D-игр (Win+Alt+P)").size(11),
+            text("Временная фиксация мыши для 3D-игр (Win+Alt+P)").size(12),
             tooltip::Position::Bottom,
         )
         .gap(6)
@@ -2233,9 +2265,12 @@ impl App {
         container(
             row![
                 column![
-                    text(title).size(20).style(move |_| text::Style {
-                        color: Some(self.theme_mode.text_primary()),
-                    }),
+                    text(title)
+                        .size(20)
+                        .font(ui_font_with_weight(Weight::Semibold))
+                        .style(move |_| text::Style {
+                            color: Some(self.theme_mode.text_primary()),
+                        }),
                     text(subtitle).size(12).style(|_| text::Style {
                         color: Some(self.theme_mode.text_muted()),
                     }),
@@ -2304,7 +2339,7 @@ impl App {
     fn stat_card(&self, label: &str, value: String, sub: String) -> Element<'_, Message> {
         container(
             column![
-                text(label.to_string()).size(10).style(|_| text::Style {
+                text(label.to_string()).size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
                 }),
                 Space::with_height(2),
@@ -2312,7 +2347,7 @@ impl App {
                     color: Some(self.theme_mode.text_primary()),
                 }),
                 Space::with_height(2),
-                text(sub).size(11).style(|_| text::Style {
+                text(sub).size(12).style(|_| text::Style {
                     color: Some(PRIMARY),
                 }),
             ]
@@ -2343,7 +2378,7 @@ impl App {
             .style(|_, status| styles::secondary_button(self.theme_mode, status))
             .padding([6, 12])
             .on_press(Message::AutoArrange(ArrangeMode::Horizontal)),
-            text("Расположить мониторы горизонтально в одну линию").size(11),
+            text("Расположить мониторы горизонтально в одну линию").size(12),
             tooltip::Position::Top,
         )
         .gap(6)
@@ -2359,7 +2394,7 @@ impl App {
             .style(|_, status| styles::secondary_button(self.theme_mode, status))
             .padding([6, 12])
             .on_press(Message::AutoArrange(ArrangeMode::Vertical)),
-            text("Расположить мониторы вертикально друг над другом").size(11),
+            text("Расположить мониторы вертикально друг над другом").size(12),
             tooltip::Position::Top,
         )
         .gap(6)
@@ -2372,6 +2407,7 @@ impl App {
             is_wrap,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleWrap);
 
         let reset_btn = tooltip(
@@ -2394,7 +2430,7 @@ impl App {
             .style(|_, status| styles::secondary_button(self.theme_mode, status))
             .padding([6, 12])
             .on_press(Message::ResetLayout),
-            text("Сбросить масштаб холста и собрать все мониторы в один ряд").size(11),
+            text("Сбросить масштаб холста и собрать все мониторы в один ряд").size(12),
             tooltip::Position::Top,
         )
         .gap(6)
@@ -2424,7 +2460,7 @@ impl App {
                         text("Видеодрайвер Windows требует подтверждения активации (UAC)").size(13).style(|_| text::Style {
                             color: Some(Color::from_rgb(0.85, 0.55, 0.1)),
                         }),
-                        text("Нажмите «Активировать драйвер», чтобы система создавала реальные виртуальные мониторы Windows").size(11).style(|_| text::Style {
+                        text("Нажмите «Активировать драйвер», чтобы система создавала реальные виртуальные мониторы Windows").size(12).style(|_| text::Style {
                             color: Some(self.theme_mode.text_muted()),
                         }),
                     ]
@@ -2595,7 +2631,9 @@ impl App {
                 container(
                     column![
                         row![
-                            text(i18n::selected_display(m.id, &m.name)).size(16),
+                            text(i18n::selected_display(m.id, &m.name))
+                                .size(16)
+                                .font(ui_font_with_weight(Weight::Semibold)),
                             horizontal_space(),
                             move_left_btn,
                             move_right_btn,
@@ -2669,7 +2707,7 @@ impl App {
     fn view_about_tab(&self) -> Element<'_, Message> {
         let header = container(
             column![
-                text("О нас").size(20).style(|_| text::Style {
+                text("О нас").size(20).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                     color: Some(self.theme_mode.text_primary()),
                 }),
                 text("EvertyDisplay — пространственное управление физическими и виртуальными дисплеями")
@@ -2688,31 +2726,33 @@ impl App {
             column![
                 row![
                     render_svg(ICON_INFO, 20.0, Some("#5B4CFF")),
-                    text("EvertyDisplay").size(20),
+                    text("EvertyDisplay")
+                        .size(20)
+                        .font(ui_font_with_weight(Weight::Semibold)),
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),
                 Space::with_height(8),
-                text("Автор").size(11).style(|_| text::Style {
+                text("Автор").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
                 }),
                 text("Артур Валиев (Arthur Valiev)").size(17),
                 Space::with_height(8),
-                text("Сайт").size(11).style(|_| text::Style {
+                text("Сайт").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
                 }),
                 text("desk.everty.ru").size(15).style(|_| text::Style {
                     color: Some(PRIMARY),
                 }),
                 Space::with_height(8),
-                text("Электронная почта").size(11).style(|_| text::Style {
+                text("Электронная почта").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
                 }),
                 text("info@everty.ru").size(15).style(|_| text::Style {
                     color: Some(PRIMARY),
                 }),
                 Space::with_height(8),
-                text("Версия").size(11).style(|_| text::Style {
+                text("Версия").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
                 }),
                 text(format!("EvertyDisplay {}", env!("CARGO_PKG_VERSION"))).size(15),
@@ -2752,7 +2792,9 @@ impl App {
 
         let language_box = container(
             column![
-                text("Язык интерфейса").size(16),
+                text("Язык интерфейса")
+                    .size(16)
+                    .font(ui_font_with_weight(Weight::Semibold)),
                 text("Следовать языку интерфейса Windows или выбрать его вручную.")
                     .size(12)
                     .style(|_| text::Style {
@@ -2786,6 +2828,7 @@ impl App {
             top.osd_enabled,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleOsd);
 
         let osd_slider = row![
@@ -2806,6 +2849,7 @@ impl App {
             top.osd_show_layout,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleOsdLayout);
 
         let osd_physical_switches_chk = checkbox(
@@ -2815,13 +2859,14 @@ impl App {
             top.osd_hide_physical_to_physical,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleOsdPhysicalSwitches);
 
         let osd_box = container(
             column![
                 row![
                     render_svg(ICON_BELL, 16.0, Some(icon_color)),
-                    text("Всплывающие уведомления (OSD HUD)").size(16),
+                    text("Всплывающие уведомления (OSD HUD)").size(16).font(ui_font_with_weight(Weight::Semibold)),
                 ].spacing(8).align_y(Alignment::Center),
                 text("Отображает полупрозрачный индикатор в центре экрана с именем монитора и подсказкой при переключении.").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
@@ -2845,14 +2890,14 @@ impl App {
             i18n::translate("Auto-Gaming Guard: Автоматически блокировать переход мыши в полноэкранных 3D-играх"),
             top.gaming_guard_enabled,
         )
-        .size(16)
+        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleGamingGuard);
 
         let gaming_box = container(
             column![
                 row![
                     render_svg(ICON_GAMEPAD, 16.0, Some(icon_color)),
-                    text("Игровой режим (Auto-Gaming Guard)").size(16),
+                    text("Игровой режим (Auto-Gaming Guard)").size(16).font(ui_font_with_weight(Weight::Semibold)),
                 ].spacing(8).align_y(Alignment::Center),
                 text("Служба проверяет запуск игр в полноэкранном режиме и блокирует случайный вылет курсора на соседние мониторы. Быстрая пауза: Win+Alt+P.").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
@@ -2871,14 +2916,14 @@ impl App {
             i18n::translate("Smart Auto-Focus: Автоматически передавать фокус окну под курсором при переходе на монитор"),
             top.smart_focus_enabled,
         )
-        .size(16)
+        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleSmartFocus);
 
         let drag_chk = checkbox(
             i18n::translate("Drag-to-Teleport: Мгновенно переносить окно на монитор при зажатой ЛКМ на краю экрана"),
             top.drag_teleport_enabled,
         )
-        .size(16)
+        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleDragTeleport);
 
         let match_mode_chk = checkbox(
@@ -2888,6 +2933,7 @@ impl App {
             top.match_virtual_mode_to_primary,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleMatchVirtualMode);
 
         let follow_physical_window_chk = checkbox(
@@ -2897,6 +2943,7 @@ impl App {
             top.follow_physical_window_activation,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleFollowPhysicalWindow);
 
         let activation_button = |action, label| {
@@ -2933,7 +2980,7 @@ impl App {
             text(i18n::translate(
                 "Работает при выборе окна на панели задач и через Alt+Tab.",
             ))
-            .size(11)
+            .size(12)
             .style(|_| text::Style {
                 color: Some(self.theme_mode.text_muted()),
             }),
@@ -2944,7 +2991,7 @@ impl App {
             column![
                 row![
                     render_svg(ICON_WINDOW, 16.0, Some(icon_color)),
-                    text("Управление окнами и фокусом").size(16),
+                    text("Управление окнами и фокусом").size(16).font(ui_font_with_weight(Weight::Semibold)),
                 ].spacing(8).align_y(Alignment::Center),
                 text("Обеспечивает естественное взаимодействие с окнами при пространственном переключении мониторов.").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
@@ -2970,6 +3017,7 @@ impl App {
             top.pip_enabled,
         )
         .size(16)
+        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::TogglePip);
 
         let pip_slider = row![
@@ -2985,7 +3033,7 @@ impl App {
             column![
                 row![
                     render_svg(ICON_PIP, 16.0, Some(icon_color)),
-                    text("Картинка-в-картинке (Live PiP)").size(16),
+                    text("Картинка-в-картинке (Live PiP)").size(16).font(ui_font_with_weight(Weight::Semibold)),
                 ].spacing(8).align_y(Alignment::Center),
                 text("Позволяет непрерывно видеть виртуальный экран в компактном окне. Окно можно свободно растягивать мышью за любые края и перетаскивать за центр в любое место экрана. Хоткей: Win+Alt+V.").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
@@ -3041,14 +3089,14 @@ impl App {
             i18n::translate("Запускать фоновую службу EvertyDisplay автоматически при входе в Windows (HKCU Run)"),
             top.autostart_enabled,
         )
-        .size(16)
+        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleAutostart);
 
         let autostart_box = container(
             column![
                 row![
                     render_svg(ICON_ROCKET, 16.0, Some(icon_color)),
-                    text("Автозапуск и системные службы").size(16),
+                    text("Автозапуск и системные службы").size(16).font(ui_font_with_weight(Weight::Semibold)),
                 ].spacing(8).align_y(Alignment::Center),
                 text("Служба работает в фоне в системном трее Windows без консольных окон, обеспечивая бесшовное перемещение курсора, хоткеи и виртуальные мониторы.").size(12).style(|_| text::Style {
                     color: Some(self.theme_mode.text_muted()),
@@ -3069,7 +3117,9 @@ impl App {
             column![
                 row![
                     render_svg(ICON_KEYBOARD, 16.0, Some(icon_color)),
-                    text("Памятка горячих клавиш EvertyDisplay").size(16),
+                    text("Памятка горячих клавиш EvertyDisplay")
+                        .size(16)
+                        .font(ui_font_with_weight(Weight::Semibold)),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -3132,7 +3182,7 @@ impl App {
             column![
                 row![
                     render_svg(ICON_TRASH, 16.0, Some("#EF4444")),
-                    text("Опасная зона: Удаление драйвера").size(16).style(|_| text::Style {
+                    text("Опасная зона: Удаление драйвера").size(16).font(ui_font_with_weight(Weight::Semibold)).style(|_| text::Style {
                         color: Some(DANGER),
                     }),
                 ].spacing(8).align_y(Alignment::Center),
@@ -3227,7 +3277,13 @@ async fn send_monitor_action(request: IpcRequest) -> Result<(), String> {
 
 #[cfg(test)]
 mod driver_settings_tests {
-    use super::add_global_refresh_rate_xml;
+    use super::{add_global_refresh_rate_xml, preferred_ui_font_name};
+
+    #[test]
+    fn typography_has_a_windows_compatible_fallback() {
+        assert_eq!(preferred_ui_font_name(true), "Segoe UI Variable");
+        assert_eq!(preferred_ui_font_name(false), "Segoe UI");
+    }
 
     #[test]
     fn refresh_rate_merge_preserves_existing_driver_settings() {

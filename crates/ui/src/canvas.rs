@@ -1,6 +1,8 @@
 use crate::i18n::{self, Language};
 use crate::styles::{ThemeMode, PRIMARY};
 use crate::Message;
+use crate::{ui_font, ui_font_with_weight};
+use iced::font::Weight;
 use iced::mouse;
 use iced::widget::canvas::{event, Event, Frame, Geometry, Path, Program, Stroke, Text};
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
@@ -617,7 +619,8 @@ impl<'a> Program<Message, Theme, Renderer> for SpatialCanvas<'a> {
                 content: role_text.to_string(),
                 position: Point::new(screen_x + 8.0 + badge_w / 2.0, screen_y + 6.0 + 7.5),
                 color: badge_fg,
-                size: (8.5).into(),
+                size: (9.5).into(),
+                font: ui_font_with_weight(Weight::Semibold),
                 horizontal_alignment: iced::alignment::Horizontal::Center,
                 vertical_alignment: iced::alignment::Vertical::Center,
                 ..Default::default()
@@ -671,6 +674,7 @@ impl<'a> Program<Message, Theme, Renderer> for SpatialCanvas<'a> {
                 position: Point::new(center_x, center_y),
                 color: num_color,
                 size: num_size.into(),
+                font: ui_font_with_weight(Weight::Semibold),
                 horizontal_alignment: iced::alignment::Horizontal::Center,
                 vertical_alignment: iced::alignment::Vertical::Center,
                 ..Default::default()
@@ -685,7 +689,8 @@ impl<'a> Program<Message, Theme, Renderer> for SpatialCanvas<'a> {
                 content: res_text,
                 position: Point::new(center_x, screen_y + screen_h - 10.0),
                 color: muted_color,
-                size: (10.0).into(),
+                size: (11.5).into(),
+                font: ui_font_with_weight(Weight::Medium),
                 horizontal_alignment: iced::alignment::Horizontal::Center,
                 vertical_alignment: iced::alignment::Vertical::Bottom,
                 ..Default::default()
@@ -712,7 +717,8 @@ impl<'a> Program<Message, Theme, Renderer> for SpatialCanvas<'a> {
                 ThemeMode::Light => Color::from_rgba(0.45, 0.48, 0.58, 0.75),
                 ThemeMode::Dark => Color::from_rgba(0.55, 0.60, 0.72, 0.75),
             },
-            size: (10.5).into(),
+            size: (12.0).into(),
+            font: ui_font(),
             vertical_alignment: iced::alignment::Vertical::Bottom,
             ..Default::default()
         });

@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.2.3"
+version = "1.2.4"
 edition = "2021"
 authors = ["Артур Валиев (Arthur Valiev) <63344403+vaalimusic@users.noreply.github.com>"]
 license = "GPL-3.0-only"
