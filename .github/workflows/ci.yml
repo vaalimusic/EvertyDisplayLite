@@ -17,6 +17,20 @@ jobs:
       - name: Verify public boundary
         shell: pwsh
         run: ./scripts/verify-public-tree.ps1
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $parseErrors = @()
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            $parseErrors += $errors
+          }
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Test

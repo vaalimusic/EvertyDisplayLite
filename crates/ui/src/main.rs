@@ -641,6 +641,7 @@ pub struct App {
     removing_monitor_id: Option<u32>,
     removal_started_at: Option<Instant>,
     status_notice_until: Option<Instant>,
+    status_notice_is_error: bool,
 }
 
 impl App {
@@ -672,6 +673,7 @@ impl App {
                 removing_monitor_id: None,
                 removal_started_at: None,
                 status_notice_until: None,
+                status_notice_is_error: false,
             },
             Task::batch([
                 Task::perform(bootstrap_and_fetch(), Message::DataLoaded),
@@ -869,6 +871,7 @@ impl App {
                 Err(message) => {
                     self.status_text = format!("Операция с монитором не выполнена: {message}");
                     self.status_notice_until = Some(Instant::now() + Duration::from_secs(15));
+                    self.status_notice_is_error = true;
                     Task::none()
                 }
             },
@@ -1109,6 +1112,7 @@ impl App {
                     self.add_flow = AddMonitorFlowState::Idle;
                     self.status_text = format!("Не удалось добавить экран: {message}");
                     self.status_notice_until = Some(Instant::now() + Duration::from_secs(15));
+                    self.status_notice_is_error = true;
                     Task::none()
                 }
             },
@@ -1174,21 +1178,18 @@ impl App {
                 self.removing_monitor_id = Some(id);
                 self.removal_started_at = Some(Instant::now());
                 self.is_refreshing = true;
-                self.status_text = format!("Удаление виртуального экрана {id}…");
+                self.status_text = i18n::removing_display(id);
                 Task::perform(
                     async move {
                         match tokio::time::timeout(
-                            Duration::from_secs(40),
+                            Duration::from_secs(65),
                             send_monitor_action(IpcRequest::RemoveMonitor(id)),
                         )
                         .await
                         {
                             Ok(Ok(())) => fetch_data().await,
                             Ok(Err(error)) => Err(error),
-                            Err(_) => Err(
-                                "Удаление не завершилось за 40 секунд. Драйвер мог перестать отвечать"
-                                    .to_string(),
-                            ),
+                            Err(_) => Err(i18n::removal_timeout().to_string()),
                         }
                     },
                     move |result| Message::RemovedMonitorResult { id, result },
@@ -1201,13 +1202,15 @@ impl App {
                 match result {
                     Ok(data) => {
                         let task = self.update(Message::DataLoaded(Ok(data)));
-                        self.status_text = format!("Виртуальный экран {id} удалён");
+                        self.status_text = i18n::display_removed(id);
                         self.status_notice_until = Some(Instant::now() + Duration::from_secs(8));
+                        self.status_notice_is_error = false;
                         task
                     }
                     Err(message) => {
-                        self.status_text = format!("Не удалось удалить экран {id}: {message}");
+                        self.status_text = i18n::display_remove_failed(id, &message);
                         self.status_notice_until = Some(Instant::now() + Duration::from_secs(20));
+                        self.status_notice_is_error = true;
                         Task::none()
                     }
                 }
@@ -2008,8 +2011,7 @@ impl App {
         let active_banner = flow_banner.or(dialog_banner);
         let operation_banner =
             if self.removing_monitor_id.is_none() && self.status_notice_until.is_some() {
-                let failed = self.status_text.starts_with("Не удалось")
-                    || self.status_text.contains("не выполнена");
+                let failed = self.status_notice_is_error;
                 let color = if failed { DANGER } else { SUCCESS };
                 container(
                     row![
@@ -2631,10 +2633,7 @@ impl App {
                 column![
                     row![
                         render_svg(ICON_REFRESH, 15.0, Some("#5B4CFF")),
-                        text(format!(
-                            "Удаляем виртуальный экран {id}. Windows перенастраивает дисплеи — это может занять до 30 секунд…"
-                        ))
-                        .size(12),
+                        text(i18n::removal_progress(id)).size(12),
                     ]
                     .spacing(8)
                     .align_y(Alignment::Center),

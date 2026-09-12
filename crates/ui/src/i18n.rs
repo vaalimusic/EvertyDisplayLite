@@ -82,6 +82,61 @@ pub fn display_name(number: usize) -> String {
     }
 }
 
+pub fn removing_display(id: u32) -> String {
+    match current() {
+        Language::Russian => format!("Удаление виртуального экрана {id}…"),
+        Language::English => format!("Removing virtual display {id}…"),
+        Language::Arabic => format!("جارٍ إزالة الشاشة الافتراضية {id}…"),
+        Language::Spanish => format!("Eliminando la pantalla virtual {id}…"),
+        Language::German => format!("Virtueller Bildschirm {id} wird entfernt…"),
+        Language::French => format!("Suppression de l’écran virtuel {id}…"),
+    }
+}
+
+pub fn removal_progress(id: u32) -> String {
+    match current() {
+        Language::Russian => format!("Удаляем виртуальный экран {id}. Windows перенастраивает дисплеи — это может занять до 30 секунд…"),
+        Language::English => format!("Removing virtual display {id}. Windows is reconfiguring the displays; this may take up to 30 seconds…"),
+        Language::Arabic => format!("جارٍ إزالة الشاشة الافتراضية {id}. يعيد Windows تهيئة الشاشات وقد يستغرق ذلك حتى 30 ثانية…"),
+        Language::Spanish => format!("Eliminando la pantalla virtual {id}. Windows está reconfigurando las pantallas; puede tardar hasta 30 segundos…"),
+        Language::German => format!("Virtueller Bildschirm {id} wird entfernt. Windows konfiguriert die Anzeigen neu; dies kann bis zu 30 Sekunden dauern…"),
+        Language::French => format!("Suppression de l’écran virtuel {id}. Windows reconfigure les écrans ; cela peut prendre jusqu’à 30 secondes…"),
+    }
+}
+
+pub fn display_removed(id: u32) -> String {
+    match current() {
+        Language::Russian => format!("Виртуальный экран {id} удалён"),
+        Language::English => format!("Virtual display {id} was removed"),
+        Language::Arabic => format!("تمت إزالة الشاشة الافتراضية {id}"),
+        Language::Spanish => format!("Se eliminó la pantalla virtual {id}"),
+        Language::German => format!("Virtueller Bildschirm {id} wurde entfernt"),
+        Language::French => format!("L’écran virtuel {id} a été supprimé"),
+    }
+}
+
+pub fn display_remove_failed(id: u32, error: &str) -> String {
+    match current() {
+        Language::Russian => format!("Не удалось удалить экран {id}: {error}"),
+        Language::English => format!("Could not remove display {id}: {error}"),
+        Language::Arabic => format!("تعذرت إزالة الشاشة {id}: {error}"),
+        Language::Spanish => format!("No se pudo eliminar la pantalla {id}: {error}"),
+        Language::German => format!("Bildschirm {id} konnte nicht entfernt werden: {error}"),
+        Language::French => format!("Impossible de supprimer l’écran {id} : {error}"),
+    }
+}
+
+pub fn removal_timeout() -> &'static str {
+    match current() {
+        Language::Russian => "Удаление не завершилось за 65 секунд. Драйвер мог перестать отвечать",
+        Language::English => "Removal did not finish within 65 seconds. The driver may have stopped responding",
+        Language::Arabic => "لم تكتمل الإزالة خلال 65 ثانية. ربما توقف برنامج التشغيل عن الاستجابة",
+        Language::Spanish => "La eliminación no terminó en 65 segundos. Es posible que el controlador no responda",
+        Language::German => "Das Entfernen wurde nicht innerhalb von 65 Sekunden abgeschlossen. Der Treiber reagiert möglicherweise nicht mehr",
+        Language::French => "La suppression ne s’est pas terminée en 65 secondes. Le pilote ne répond peut-être plus",
+    }
+}
+
 pub fn confirmation_message(seconds: u8) -> String {
     match current() {
         Language::Russian => format!("Отображение работает корректно? Если не нажать «Ок» через {seconds} с — монитор будет автоматически удалён."),
@@ -1148,9 +1203,13 @@ fn replace_phrases(input: &str, replacements: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static LANGUAGE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn explicit_language_is_applied_immediately() {
+        let _language_guard = LANGUAGE_TEST_LOCK.lock().unwrap();
         apply(LanguagePreference::English);
         assert_eq!(translate("Добавить экран"), "Add display");
         apply(LanguagePreference::Arabic);
@@ -1182,5 +1241,25 @@ mod tests {
         assert_eq!(language_from_windows_lang_id(0x0c0a), Language::Spanish);
         assert_eq!(language_from_windows_lang_id(0x0407), Language::German);
         assert_eq!(language_from_windows_lang_id(0x040c), Language::French);
+    }
+
+    #[test]
+    fn removal_progress_and_results_follow_selected_language() {
+        let _language_guard = LANGUAGE_TEST_LOCK.lock().unwrap();
+        apply(LanguagePreference::English);
+        assert!(removing_display(3).starts_with("Removing"));
+        assert!(removal_progress(3).contains("30 seconds"));
+        assert!(display_removed(3).contains("was removed"));
+        assert!(display_remove_failed(3, "driver error").contains("driver error"));
+
+        apply(LanguagePreference::Arabic);
+        assert!(removing_display(3).contains('3'));
+        apply(LanguagePreference::Spanish);
+        assert!(removal_progress(3).contains("30 segundos"));
+        apply(LanguagePreference::German);
+        assert!(display_removed(3).contains("entfernt"));
+        apply(LanguagePreference::French);
+        assert!(display_remove_failed(3, "erreur").contains("erreur"));
+        apply(LanguagePreference::Russian);
     }
 }

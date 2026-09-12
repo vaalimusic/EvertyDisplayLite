@@ -147,12 +147,24 @@ mod tests {
 
     #[test]
     fn test_duplicate_all_outputs() {
-        let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1().unwrap() };
+        let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
+            Ok(factory) => factory,
+            Err(error) => {
+                println!("DXGI factory is unavailable in this session: {error:?}");
+                return;
+            }
+        };
         let mut adapter_index = 0;
 
         while let Ok(adapter) = unsafe { factory.EnumAdapters1(adapter_index) } {
             adapter_index += 1;
-            let desc = unsafe { adapter.GetDesc1().unwrap() };
+            let desc = match unsafe { adapter.GetDesc1() } {
+                Ok(desc) => desc,
+                Err(error) => {
+                    println!("  Could not read adapter description: {error:?}");
+                    continue;
+                }
+            };
             let adapter_name = String::from_utf16_lossy(&desc.Description)
                 .trim_matches('\0')
                 .to_string();
@@ -162,7 +174,13 @@ mod tests {
             let mut feature_level = D3D_FEATURE_LEVEL_11_0;
             let levels = [D3D_FEATURE_LEVEL_11_0];
 
-            let adapter0: windows::Win32::Graphics::Dxgi::IDXGIAdapter = adapter.cast().unwrap();
+            let adapter0: windows::Win32::Graphics::Dxgi::IDXGIAdapter = match adapter.cast() {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    println!("  Could not access the base DXGI adapter: {error:?}");
+                    continue;
+                }
+            };
             let res = unsafe {
                 D3D11CreateDevice(
                     Some(&adapter0),
@@ -188,7 +206,13 @@ mod tests {
             let mut output_index = 0;
             while let Ok(output) = unsafe { adapter.EnumOutputs(output_index) } {
                 output_index += 1;
-                let odesc = unsafe { output.GetDesc().unwrap() };
+                let odesc = match unsafe { output.GetDesc() } {
+                    Ok(desc) => desc,
+                    Err(error) => {
+                        println!("  Could not read output description: {error:?}");
+                        continue;
+                    }
+                };
                 let oname = String::from_utf16_lossy(&odesc.DeviceName)
                     .trim_matches('\0')
                     .to_string();
