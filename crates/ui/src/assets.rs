@@ -34,6 +34,7 @@ pub const ICON_MAXIMIZE: &[u8] = include_bytes!("../../../assets/sprites/ui/maxi
 pub const ICON_RESTORE: &[u8] = include_bytes!("../../../assets/sprites/ui/restore.svg");
 pub const ICON_CLOSE: &[u8] = include_bytes!("../../../assets/sprites/ui/close.svg");
 pub const LOGO_MARK: &[u8] = include_bytes!("../../../assets/logo_mark.svg");
+pub const LOGO_DISPLAY: &[u8] = include_bytes!("../../../assets/logo_display.svg");
 
 pub const LOGO_IN_APP: &[u8] = include_bytes!("../../../assets/logo_in_app_evertydisplay.png");
 pub const LOGO_ICON: &[u8] = include_bytes!("../../../assets/logo_icon_evertydisplay.png");

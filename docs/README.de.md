@@ -18,10 +18,11 @@ der sich wie ein physischer Monitor anfühlt. Mauszeiger und Fenster bewegen sic
 - OSD, Tastenkürzel, Spielmodus und zuverlässige Wiederherstellung;
 - Benutzeroberfläche in sechs Sprachen.
 
-Die offizielle Lite-Ausgabe unterstützt **einen aktiven virtuellen Bildschirm**.
-Der Hintergrunddienst erzwingt das Limit; ein direkter IPC-Aufruf oder eine alte
-Konfiguration kann keinen zweiten Bildschirm aktivieren. Überschüssige
-Identitäten werden deaktiviert, ohne das Backup zu zerstören.
+Die offizielle Lite-Ausgabe hat **keine künstliche Produkt- oder Lizenzgrenze**
+für virtuelle Bildschirme. Mehrbildschirm-Layouts sind vollständig aktiviert.
+Der aktuelle signierte MttVDD-Treiber unterstützt technisch bis zu **fünf aktive
+virtuelle Bildschirme**; EvertyDisplay stellt den gesamten Bereich bereit und
+verhindert einen sechsten Versuch mit einem klaren UI-Status.
 
 ## Bauen
 
@@ -34,9 +35,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Signaturschlüssel, Zertifikate, `devcon.exe` und der signierte Treiber werden
-nicht im Repository veröffentlicht. Der unterstützte Treiber ist im offiziellen
-Build auf der [EvertyDisplay-Seite](https://desk.everty.ru/evertydisplay) enthalten.
+Der Installer-Workflow lädt MttVDD 24.12.24 aus dem offiziellen Upstream-Release,
+prüft den festgelegten SHA-256 sowie die Authenticode-Signaturen und verpackt ihn
+erst danach. Signaturschlüssel werden niemals im Repository gespeichert. Lokal
+wird der Installer mit `./scripts/build-installer.ps1` und Inno Setup 6 gebaut.
 
 ## Starkes Copyleft
 

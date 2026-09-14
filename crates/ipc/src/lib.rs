@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+/// Maximum number of outputs supported by the bundled MttVDD driver protocol.
+/// This is a technical driver boundary, not an edition or licensing limit.
+pub const MAX_SUPPORTED_VIRTUAL_DISPLAYS: u32 = 5;
+
 pub const IPC_PIPE_NAME: &str = r"\\.\pipe\multitor-virtual-screens-ipc";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -445,8 +449,8 @@ mod tests {
     fn product_capabilities_round_trip_over_ipc_json() {
         let response = IpcResponse::ProductCapabilities(ProductCapabilities {
             edition: ProductEdition::Lite,
-            max_virtual_displays: 1,
-            multi_display_layouts: false,
+            max_virtual_displays: MAX_SUPPORTED_VIRTUAL_DISPLAYS,
+            multi_display_layouts: true,
             cloud_features: false,
         });
         let json = serde_json::to_string(&response).unwrap();
@@ -454,7 +458,11 @@ mod tests {
         match restored {
             IpcResponse::ProductCapabilities(capabilities) => {
                 assert_eq!(capabilities.edition, ProductEdition::Lite);
-                assert_eq!(capabilities.max_virtual_displays, 1);
+                assert_eq!(
+                    capabilities.max_virtual_displays,
+                    MAX_SUPPORTED_VIRTUAL_DISPLAYS
+                );
+                assert!(capabilities.multi_display_layouts);
             }
             _ => panic!("unexpected IPC response variant"),
         }

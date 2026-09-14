@@ -37,8 +37,9 @@ foreach ($pattern in $credentialPatterns) {
 
 $policy = Get-Content -LiteralPath (Join-Path $repository 'crates\product-policy\src\lib.rs') -Raw
 if ($policy -notmatch 'edition:\s*ProductEdition::Lite' -or
-    $policy -notmatch 'max_virtual_displays:\s*1') {
-    throw 'The authoritative public product policy is not locked to Lite / one display.'
+    $policy -notmatch 'max_virtual_displays:\s*MAX_SUPPORTED_VIRTUAL_DISPLAYS' -or
+    $policy -notmatch 'multi_display_layouts:\s*true') {
+    throw 'The public Lite policy does not expose the complete multi-display driver capability.'
 }
 
 $serviceManifest = Get-Content -LiteralPath (Join-Path $repository 'crates\service\Cargo.toml') -Raw

@@ -18,10 +18,11 @@ que sa position suit la topologie spatiale configurée dans Windows.
 - OSD, raccourcis, mode jeu et récupération fiable ;
 - interface disponible en six langues.
 
-L’édition Lite officielle prend en charge **un écran virtuel actif**. La limite
-est imposée par le service d’arrière-plan : une requête IPC directe ou une
-ancienne configuration ne peut pas activer un second écran. Les identités en
-surplus sont désactivées sans détruire la sauvegarde.
+L’édition Lite officielle **n’impose aucune limite artificielle de produit ou de
+licence** aux écrans virtuels et active les dispositions multi-écrans. Le pilote
+MttVDD signé prend techniquement en charge jusqu’à **cinq écrans virtuels actifs** ;
+EvertyDisplay expose toute cette capacité et bloque proprement une sixième
+tentative dans l’interface.
 
 ## Compilation
 
@@ -34,9 +35,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Le dépôt ne publie ni clés de signature, ni certificats, ni `devcon.exe`, ni la
-charge signée du pilote. Le pilote pris en charge est fourni dans la version
-officielle sur la [page EvertyDisplay](https://desk.everty.ru/evertydisplay).
+Le workflow d’installation télécharge MttVDD 24.12.24 depuis sa version amont
+officielle, vérifie le SHA-256 épinglé et les signatures Authenticode, puis le
+conditionne. Aucune clé de signature n’est stockée dans le dépôt. L’installeur
+local se construit avec `./scripts/build-installer.ps1` et Inno Setup 6.
 
 ## Copyleft fort
 

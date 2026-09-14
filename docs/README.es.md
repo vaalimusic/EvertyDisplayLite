@@ -18,10 +18,11 @@ colócala espacialmente junto a tus otras pantallas.
 - OSD, atajos, modo de juego y recuperación ante fallos;
 - interfaz disponible en seis idiomas.
 
-La versión oficial Lite admite **una pantalla virtual activa**. El límite se
-aplica en el servicio, no solo en la interfaz: una petición IPC directa o una
-configuración antigua no puede activar una segunda pantalla. Las identidades
-sobrantes se desactivan sin destruir la copia de seguridad.
+La versión oficial Lite **no impone límites artificiales de producto o licencia**
+a las pantallas virtuales y habilita las disposiciones multipantalla. El
+controlador MttVDD firmado admite técnicamente hasta **cinco pantallas virtuales
+activas**; EvertyDisplay expone toda esa capacidad y bloquea un sexto intento
+con un estado claro en la interfaz.
 
 ## Compilación
 
@@ -34,9 +35,10 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-El repositorio no publica claves de firma, certificados, `devcon.exe` ni la
-carga firmada del controlador. El controlador compatible está incluido en la
-versión oficial de la [página de EvertyDisplay](https://desk.everty.ru/evertydisplay).
+El workflow del instalador descarga MttVDD 24.12.24 desde su versión oficial,
+verifica el SHA-256 fijado y las firmas Authenticode, y solo entonces lo empaqueta.
+Las claves de firma nunca se guardan en el repositorio. El instalador local se
+genera con `./scripts/build-installer.ps1` e Inno Setup 6.
 
 ## Copyleft fuerte
 

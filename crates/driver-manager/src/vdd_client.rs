@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use multitor_ipc::MAX_SUPPORTED_VIRTUAL_DISPLAYS;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::net::windows::named_pipe::ClientOptions;
@@ -220,8 +221,11 @@ pub fn set_xml_monitor_count(count: u32) -> Result<()> {
 }
 
 fn update_monitor_count_xml(content: &str, count: u32) -> Result<String> {
-    if !(1..=5).contains(&count) {
-        bail!("MttVDD monitor count must be between 1 and 5, got {count}");
+    if !(1..=MAX_SUPPORTED_VIRTUAL_DISPLAYS).contains(&count) {
+        bail!(
+            "MttVDD monitor count must be between 1 and {}, got {count}",
+            MAX_SUPPORTED_VIRTUAL_DISPLAYS
+        );
     }
     let start_tag = "<count>";
     let end_tag = "</count>";

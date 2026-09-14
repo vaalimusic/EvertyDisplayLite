@@ -631,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn lite_limit_disables_surplus_virtual_monitors_without_deleting_identity() {
+    fn configured_limit_disables_surplus_virtual_monitors_without_deleting_identity() {
         let monitor = |id, virtual_display| MonitorConfig {
             id,
             device_name: format!(r"\\.\DISPLAY{id}"),

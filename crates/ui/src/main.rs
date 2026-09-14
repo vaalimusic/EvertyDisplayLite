@@ -10,13 +10,15 @@ mod styles;
 use assets::*;
 use i18n::LanguagePreference;
 use iced::widget::{
-    button, canvas::Canvas, checkbox, column, container, horizontal_space, image, mouse_area,
-    progress_bar, row, scrollable, slider, text as iced_text, text_input, tooltip, Space,
+    button, canvas::Canvas, checkbox as iced_checkbox, column, container, horizontal_space,
+    mouse_area, progress_bar, row, scrollable, slider, text as iced_text, text_input, tooltip,
+    Space,
 };
 use iced::{font::Weight, Alignment, Color, Element, Font, Length, Subscription, Task, Theme};
 use multitor_ipc::{
     removable_virtual_monitor_id, ArrangeMode, DisplayInfo, IpcRequest, IpcResponse,
     ProductCapabilities, ProductEdition, TopologyConfig, VirtualWindowActivationAction,
+    MAX_SUPPORTED_VIRTUAL_DISPLAYS,
 };
 use std::process::Command;
 use std::sync::OnceLock;
@@ -43,23 +45,58 @@ pub(crate) fn ui_font_with_weight(weight: Weight) -> Font {
             .map(|directory| directory.join("Fonts").join("SegUIVar.ttf").is_file())
             .unwrap_or(false)
     });
-    let mut font = Font::with_name(preferred_ui_font_name(use_variable));
+    let mut font = Font::with_name(preferred_ui_font_name(
+        use_variable,
+        i18n::current() == i18n::Language::Arabic,
+    ));
     font.weight = weight;
     font
 }
 
-fn preferred_ui_font_name(variable_available: bool) -> &'static str {
-    if variable_available {
+fn preferred_ui_font_name(variable_available: bool, is_arabic: bool) -> &'static str {
+    if variable_available && !is_arabic {
         "Segoe UI Variable"
     } else {
         "Segoe UI"
     }
 }
 
+fn directional_label(label: String, is_rtl: bool) -> String {
+    const RIGHT_TO_LEFT_ISOLATE: char = '\u{2067}';
+    const POP_DIRECTIONAL_ISOLATE: char = '\u{2069}';
+
+    if !is_rtl
+        || (label.starts_with(RIGHT_TO_LEFT_ISOLATE) && label.ends_with(POP_DIRECTIONAL_ISOLATE))
+    {
+        label
+    } else {
+        format!("{RIGHT_TO_LEFT_ISOLATE}{label}{POP_DIRECTIONAL_ISOLATE}")
+    }
+}
+
 fn text<'a>(content: impl Into<std::borrow::Cow<'a, str>>) -> iced::widget::Text<'a> {
-    iced_text(i18n::translate(content))
+    let translated = i18n::translate(content);
+    let is_rtl = i18n::current() == i18n::Language::Arabic;
+    iced_text(directional_label(translated.into_owned(), is_rtl))
         .font(ui_font())
         .shaping(iced::widget::text::Shaping::Advanced)
+        .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+        .line_height(if is_rtl { 1.45 } else { 1.3 })
+}
+
+fn checkbox<'a, Message>(
+    label: impl Into<String>,
+    is_checked: bool,
+) -> iced::widget::Checkbox<'a, Message> {
+    let is_rtl = i18n::current() == i18n::Language::Arabic;
+    iced_checkbox(directional_label(label.into(), is_rtl), is_checked)
+        .size(16)
+        .width(Length::Fill)
+        .text_size(if is_rtl { 15 } else { 16 })
+        .text_line_height(if is_rtl { 1.45 } else { 1.3 })
+        .text_wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+        .font(ui_font_with_weight(Weight::Medium))
+        .text_shaping(iced::widget::text::Shaping::Advanced)
 }
 
 mod text {
@@ -532,7 +569,7 @@ pub fn main() -> iced::Result {
     let icon = iced::window::icon::from_file_data(LOGO_ICON, None).ok();
 
     iced::application(APP_WINDOW_TITLE, App::update, App::view)
-        .default_font(ui_font())
+        .default_font(Font::with_name("Segoe UI"))
         .antialiasing(true)
         .window(iced::window::Settings {
             icon,
@@ -689,8 +726,8 @@ impl App {
                 displays: Vec::new(),
                 product_capabilities: ProductCapabilities {
                     edition: ProductEdition::Lite,
-                    max_virtual_displays: 1,
-                    multi_display_layouts: false,
+                    max_virtual_displays: MAX_SUPPORTED_VIRTUAL_DISPLAYS,
+                    multi_display_layouts: true,
                     cloud_features: false,
                 },
                 selected_id: None,
@@ -1364,9 +1401,7 @@ impl App {
         };
 
         let app_brand = row![
-            image(image::Handle::from_bytes(LOGO_ICON))
-                .width(Length::Fixed(18.0))
-                .height(Length::Fixed(18.0)),
+            render_svg(LOGO_DISPLAY, 20.0, None),
             text("EvertyDisplay").size(13).style(move |_| text::Style {
                 color: Some(self.theme_mode.text_primary()),
             }),
@@ -1428,17 +1463,19 @@ impl App {
         let sidebar = self.view_sidebar();
         let content = self.view_content();
 
-        let main_body = row![
-            sidebar,
-            container(content)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .padding([16, 20])
-                .style(|_| container::Style {
-                    background: Some(iced::Background::Color(self.theme_mode.bg_app())),
-                    ..Default::default()
-                }),
-        ]
+        let content_panel = container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding([16, 20])
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(self.theme_mode.bg_app())),
+                ..Default::default()
+            });
+        let main_body = if i18n::current() == i18n::Language::Arabic {
+            row![content_panel, sidebar]
+        } else {
+            row![sidebar, content_panel]
+        }
         .height(Length::Fill);
 
         column![titlebar, main_body,]
@@ -1448,10 +1485,13 @@ impl App {
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {
+        let tooltip_position = if i18n::current() == i18n::Language::Arabic {
+            tooltip::Position::Left
+        } else {
+            tooltip::Position::Right
+        };
         let logo = row![
-            image(image::Handle::from_bytes(LOGO_IN_APP))
-                .width(Length::Fixed(38.0))
-                .height(Length::Fixed(38.0)),
+            render_svg(LOGO_DISPLAY, 54.0, None),
             column![
                 text("EvertyDisplay").size(18),
                 text("Пространственные виртуальные дисплеи")
@@ -1497,7 +1537,7 @@ impl App {
                 i18n::virtual_display_limit(self.product_capabilities.max_virtual_displays)
             })
             .size(12),
-            tooltip::Position::Right,
+            tooltip_position,
         )
         .gap(8)
         .padding(8)
@@ -1520,7 +1560,7 @@ impl App {
                 .width(Length::Fill)
                 .on_press(Message::RequestActivateDriver),
                 text("Виртуальный видеоадаптер IddCx активен. Нажмите для переустановки.").size(12),
-                tooltip::Position::Right,
+                tooltip_position,
             )
             .gap(8)
             .padding(8)
@@ -1545,7 +1585,7 @@ impl App {
                 .on_press(Message::RequestActivateDriver),
                 text("Требуется разовая системная активация для создания виртуальных экранов.")
                     .size(12),
-                tooltip::Position::Right,
+                tooltip_position,
             )
             .gap(8)
             .padding(8)
@@ -1577,7 +1617,7 @@ impl App {
             .width(Length::Fill)
             .on_press(Message::SetTab(Tab::Monitors)),
             text("Интерактивное пространственное расположение экранов").size(12),
-            tooltip::Position::Right,
+            tooltip_position,
         )
         .gap(8)
         .padding(8)
@@ -1608,7 +1648,7 @@ impl App {
             .width(Length::Fill)
             .on_press(Message::SetTab(Tab::Settings)),
             text("Конфигурация OSD, Live PiP, автозапуска и горячих клавиш").size(12),
-            tooltip::Position::Right,
+            tooltip_position,
         )
         .gap(8)
         .padding(8)
@@ -1639,7 +1679,7 @@ impl App {
             .width(Length::Fill)
             .on_press(Message::SetTab(Tab::About)),
             text("Автор и контакты проекта").size(12),
-            tooltip::Position::Right,
+            tooltip_position,
         )
         .gap(8)
         .padding(8)
@@ -1668,7 +1708,7 @@ impl App {
             .width(Length::Fill)
             .on_press(Message::ToggleTheme),
             text("Переключить тему оформления приложения").size(12),
-            tooltip::Position::Right,
+            tooltip_position,
         )
         .gap(8)
         .padding(8)
@@ -2109,9 +2149,7 @@ impl App {
     fn view_disconnected(&self) -> Element<'_, Message> {
         container(
             column![
-                image(image::Handle::from_bytes(LOGO_IN_APP))
-                    .width(Length::Fixed(84.0))
-                    .height(Length::Fixed(84.0)),
+                render_svg(LOGO_DISPLAY, 92.0, None),
                 Space::with_height(8),
                 text("Служба EvertyDisplay сейчас отключена").size(22).font(ui_font_with_weight(Weight::Semibold)).style(move |_| text::Style {
                     color: Some(self.theme_mode.text_primary()),
@@ -2406,8 +2444,6 @@ impl App {
             i18n::translate("Циклический переход краев (1 <-> N)"),
             is_wrap,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleWrap);
 
         let reset_btn = tooltip(
@@ -2790,16 +2826,29 @@ impl App {
                 .on_press(Message::SetLanguage(preference))
         };
 
-        let language_box = container(
+        let language_choices: Element<'_, Message> = if i18n::current() == i18n::Language::Arabic {
             column![
-                text("Язык интерфейса")
-                    .size(16)
-                    .font(ui_font_with_weight(Weight::Semibold)),
-                text("Следовать языку интерфейса Windows или выбрать его вручную.")
-                    .size(12)
-                    .style(|_| text::Style {
-                        color: Some(self.theme_mode.text_muted()),
-                    }),
+                row![
+                    language_button(LanguagePreference::Arabic, "Арабский"),
+                    language_button(LanguagePreference::English, "Английский"),
+                ]
+                .spacing(8),
+                row![
+                    language_button(LanguagePreference::Russian, "Русский"),
+                    language_button(LanguagePreference::System, "Как в Windows"),
+                ]
+                .spacing(8),
+                row![
+                    language_button(LanguagePreference::French, "Французский"),
+                    language_button(LanguagePreference::German, "Немецкий"),
+                    language_button(LanguagePreference::Spanish, "Испанский"),
+                ]
+                .spacing(8),
+            ]
+            .spacing(8)
+            .into()
+        } else {
+            column![
                 row![
                     language_button(LanguagePreference::System, "Как в Windows"),
                     language_button(LanguagePreference::Russian, "Русский"),
@@ -2814,6 +2863,22 @@ impl App {
                 ]
                 .spacing(8),
             ]
+            .spacing(8)
+            .into()
+        };
+
+        let language_box = container(
+            column![
+                text("Язык интерфейса")
+                    .size(16)
+                    .font(ui_font_with_weight(Weight::Semibold)),
+                text("Следовать языку интерфейса Windows или выбрать его вручную.")
+                    .size(12)
+                    .style(|_| text::Style {
+                        color: Some(self.theme_mode.text_muted()),
+                    }),
+                language_choices,
+            ]
             .spacing(8),
         )
         .padding(16)
@@ -2827,8 +2892,6 @@ impl App {
             ),
             top.osd_enabled,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleOsd);
 
         let osd_slider = row![
@@ -2848,8 +2911,6 @@ impl App {
             i18n::translate("Показывать компактную схему экранов и выделять активный экран"),
             top.osd_show_layout,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleOsdLayout);
 
         let osd_physical_switches_chk = checkbox(
@@ -2858,8 +2919,6 @@ impl App {
             ),
             top.osd_hide_physical_to_physical,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleOsdPhysicalSwitches);
 
         let osd_box = container(
@@ -2890,7 +2949,6 @@ impl App {
             i18n::translate("Auto-Gaming Guard: Автоматически блокировать переход мыши в полноэкранных 3D-играх"),
             top.gaming_guard_enabled,
         )
-        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleGamingGuard);
 
         let gaming_box = container(
@@ -2916,14 +2974,12 @@ impl App {
             i18n::translate("Smart Auto-Focus: Автоматически передавать фокус окну под курсором при переходе на монитор"),
             top.smart_focus_enabled,
         )
-        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleSmartFocus);
 
         let drag_chk = checkbox(
             i18n::translate("Drag-to-Teleport: Мгновенно переносить окно на монитор при зажатой ЛКМ на краю экрана"),
             top.drag_teleport_enabled,
         )
-        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleDragTeleport);
 
         let match_mode_chk = checkbox(
@@ -2932,8 +2988,6 @@ impl App {
             ),
             top.match_virtual_mode_to_primary,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleMatchVirtualMode);
 
         let follow_physical_window_chk = checkbox(
@@ -2942,8 +2996,6 @@ impl App {
             ),
             top.follow_physical_window_activation,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleFollowPhysicalWindow);
 
         let activation_button = |action, label| {
@@ -3016,8 +3068,6 @@ impl App {
             ),
             top.pip_enabled,
         )
-        .size(16)
-        .font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::TogglePip);
 
         let pip_slider = row![
@@ -3089,7 +3139,6 @@ impl App {
             i18n::translate("Запускать фоновую службу EvertyDisplay автоматически при входе в Windows (HKCU Run)"),
             top.autostart_enabled,
         )
-        .size(16).font(ui_font_with_weight(Weight::Medium))
         .on_toggle(Message::ToggleAutostart);
 
         let autostart_box = container(
@@ -3247,16 +3296,11 @@ async fn fetch_data() -> Result<(TopologyConfig, Vec<DisplayInfo>, ProductCapabi
 
     let capabilities = match ipc_client::send_ipc_request(&IpcRequest::GetProductCapabilities).await
     {
-        Ok(IpcResponse::ProductCapabilities(_capabilities)) => ProductCapabilities {
-            edition: ProductEdition::Lite,
-            max_virtual_displays: 1,
-            multi_display_layouts: false,
-            cloud_features: false,
-        },
+        Ok(IpcResponse::ProductCapabilities(capabilities)) => capabilities,
         _ => ProductCapabilities {
             edition: ProductEdition::Lite,
-            max_virtual_displays: 1,
-            multi_display_layouts: false,
+            max_virtual_displays: MAX_SUPPORTED_VIRTUAL_DISPLAYS,
+            multi_display_layouts: true,
             cloud_features: false,
         },
     };
@@ -3277,12 +3321,21 @@ async fn send_monitor_action(request: IpcRequest) -> Result<(), String> {
 
 #[cfg(test)]
 mod driver_settings_tests {
-    use super::{add_global_refresh_rate_xml, preferred_ui_font_name};
+    use super::{add_global_refresh_rate_xml, directional_label, preferred_ui_font_name};
 
     #[test]
     fn typography_has_a_windows_compatible_fallback() {
-        assert_eq!(preferred_ui_font_name(true), "Segoe UI Variable");
-        assert_eq!(preferred_ui_font_name(false), "Segoe UI");
+        assert_eq!(preferred_ui_font_name(true, false), "Segoe UI Variable");
+        assert_eq!(preferred_ui_font_name(false, false), "Segoe UI");
+        assert_eq!(preferred_ui_font_name(true, true), "Segoe UI");
+    }
+
+    #[test]
+    fn arabic_labels_are_directionally_isolated_once() {
+        let isolated = directional_label("إعدادات Windows".to_string(), true);
+        assert_eq!(isolated, "\u{2067}إعدادات Windows\u{2069}");
+        assert_eq!(directional_label(isolated.clone(), true), isolated);
+        assert_eq!(directional_label("Русский".to_string(), false), "Русский");
     }
 
     #[test]

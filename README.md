@@ -24,7 +24,7 @@
     <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square&logo=windows">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-CE412B?style=flat-square&logo=rust">
     <img alt="License GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-7B3F00?style=flat-square">
-    <img alt="Lite: one virtual display" src="https://img.shields.io/badge/Lite-1%20virtual%20display-6C5CE7?style=flat-square">
+    <img alt="Lite: no license limit" src="https://img.shields.io/badge/Lite-no%20license%20limit-6C5CE7?style=flat-square">
   </p>
 </div>
 
@@ -60,25 +60,21 @@ the orchestration that makes it comfortable to use.
 - Russian, English, Arabic, Spanish, German and French UI
 - Recovery logic for driver restarts, interrupted additions and stale configs
 
-## The Lite promise
+## Unlimited Lite, within the driver boundary
 
-The official Lite edition supports **one active virtual display**. This is not
-just a disabled button:
+The official Lite edition has **no artificial product or licensing limit on
+virtual displays**. Multi-display layouts and grid arrangement are enabled in
+both the UI and the background service.
 
-1. the background service is the authority;
-2. direct IPC requests for another display are rejected;
-3. a saved Pro topology is clamped during startup;
-4. surplus identities are disabled, not destroyed;
-5. multi-display grid commands are rejected by both UI and service.
-
-GPL gives every recipient the freedom to inspect and modify the source. The
-one-display rule therefore defines the official Lite build; it is deliberately
-not described as DRM.
+The bundled MttVDD protocol currently supports up to **five active virtual
+displays**. EvertyDisplay exposes that complete driver capability and stops at
+five with a clear UI state instead of letting a sixth request fail halfway.
+This is a technical compatibility boundary, not a paid-edition restriction.
 
 ## Architecture
 
 ```text
-Iced UI ──named pipe──▶ Service ──▶ Product policy (Lite = 1)
+Iced UI ──named pipe──▶ Service ──▶ Product policy (no license limit)
                            ├──────▶ Windows topology / cursor / windows
                            ├──────▶ IddCx driver manager
                            └──────▶ D3D11 Viewport + Live PiP
@@ -89,7 +85,7 @@ Iced UI ──named pipe──▶ Service ──▶ Product policy (Lite = 1)
 | `ipc` | Versioned messages, topology and capability contract |
 | `driver-manager` | Windows display enumeration and VDD control |
 | `renderer` | D3D11 capture, Viewport, PiP and cursor mapping |
-| `product-policy` | Authoritative Lite capability boundary |
+| `product-policy` | Authoritative driver capability boundary |
 | `service` | Recovery, topology, input, focus, OSD and tray |
 | `ui` | Iced settings app and localization |
 
@@ -113,15 +109,26 @@ target/release/multitor-service.exe
 
 ### About the virtual display driver
 
-This repository contains the Rust-side driver integration but intentionally
-does not publish signing keys, certificates, `devcon.exe`, archives or the
-signed driver payload used in official releases. Install an official build from
-the [EvertyDisplay page](https://desk.everty.ru/evertydisplay) to use the
-supported signed driver.
+This repository contains the Rust-side driver integration and a reproducible
+Windows installer workflow. The workflow downloads the upstream MttVDD
+24.12.24 archive from its official GitHub release, verifies its pinned SHA-256,
+checks the Authenticode signatures, and only then packages the driver.
 
-The driver payload will enter the repository only after its complete source
-provenance and redistribution terms have been audited. A convenient installer
-is never worth quietly publishing somebody else's binary or a signing secret.
+Signing keys and certificates are never stored in this repository. Local source
+builds produce the application binaries; the signed driver is required only for
+creating virtual displays. Ready-to-use builds are also published on the
+[EvertyDisplay page](https://desk.everty.ru/evertydisplay).
+
+### Build the installer
+
+Install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+
+```powershell
+./scripts/build-installer.ps1
+```
+
+The versioned installer is written to `dist/`. The same script powers the
+`Windows installer` GitHub Action and never requires a signing secret.
 
 ## Strong copyleft, by design
 
