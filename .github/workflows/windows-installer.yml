@@ -30,7 +30,7 @@ jobs:
         run: ./scripts/build-installer.ps1
 
       - name: Upload versioned installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: EvertyDisplay-Lite-Setup
           path: dist/EvertyDisplay-Lite-Setup-*.exe
